@@ -1,0 +1,75 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "plintus"
+version = "0.1.0"
+description = "Fast, extensible Python linter for complex context-dependent rules"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "plintus" }]
+keywords = ["linter", "python", "ast", "cst", "ruff"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "maturin>=1.7",
+  "pytest>=8.0",
+  "ruff>=0.6",
+  "mypy>=1.10",
+]
+
+[project.scripts]
+plintus = "plintus.cli:main"
+
+[project.entry-points."plintus.plugins"]
+builtin = "plintus.rules:register"
+
+[tool.maturin]
+manifest-path = "crates/core/Cargo.toml"
+module-name = "plintus._core"
+python-source = "src"
+features = ["extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+src = ["src", "tests", "examples"]
+exclude = [
+  "tests/fixtures",
+  "examples/sample_violations.py",
+]
+
+[tool.ruff.lint]
+# Match `ruff check` defaults (E4/E7/E9/F) used in CI.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["plintus"]
+ignore_missing_imports = true
+
+[tool.plintus]
+select = ["Q001", "Q002", "ORD001", "BAN001", "DEC001"]
+workers = 0
+cache = true
+message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "json_response", "web.json_response"]
+dict-quotes = "single"
+message-quotes = "double"

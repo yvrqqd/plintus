@@ -1,0 +1,10 @@
+# Snippet: wire local-rules into [tool.plintus]
+#
+# Drop this section into your pyproject.toml (next to the example in
+# examples/local_rules.py) to enable the X001 NoTodoComments rule.
+
+[tool.plintus]
+local-rules = ["examples/local_rules.py"]
+select = ["X001"]
+workers = 1
+cache = false

@@ -1,0 +1,72 @@
+[
+  {
+    "rule_id": "Q001",
+    "message": "Use single quotes for dict string literals",
+    "severity": "warning",
+    "line": 1,
+    "col": 6,
+    "start": 5,
+    "end": 10,
+    "fix": {
+      "start": 5,
+      "end": 10,
+      "replacement": "'key'",
+      "safety": "safe"
+    }
+  },
+  {
+    "rule_id": "Q001",
+    "message": "Use single quotes for dict string literals",
+    "severity": "warning",
+    "line": 1,
+    "col": 13,
+    "start": 12,
+    "end": 19,
+    "fix": {
+      "start": 12,
+      "end": 19,
+      "replacement": "'value'",
+      "safety": "safe"
+    }
+  },
+  {
+    "rule_id": "Q002",
+    "message": "Use double quotes for message strings",
+    "severity": "warning",
+    "line": 2,
+    "col": 7,
+    "start": 41,
+    "end": 46,
+    "fix": {
+      "start": 41,
+      "end": 46,
+      "replacement": "\"msg\"",
+      "safety": "safe"
+    }
+  },
+  {
+    "rule_id": "Q002",
+    "message": "Use double quotes for message strings",
+    "severity": "warning",
+    "line": 3,
+    "col": 20,
+    "start": 67,
+    "end": 73,
+    "fix": {
+      "start": 67,
+      "end": 73,
+      "replacement": "\"boom\"",
+      "safety": "safe"
+    }
+  },
+  {
+    "rule_id": "BAN001",
+    "message": "Call to banned function 'eval' is not allowed",
+    "severity": "error",
+    "line": 4,
+    "col": 1,
+    "start": 75,
+    "end": 84,
+    "fix": null
+  }
+]
