@@ -49,10 +49,10 @@ class Fix:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "start": self.start,
-            "end": self.end,
-            "replacement": self.replacement,
-            "safety": self.safety,
+            'start': self.start,
+            'end': self.end,
+            'replacement': self.replacement,
+            'safety': self.safety,
         }
 
 
@@ -71,18 +71,18 @@ class Diagnostic:
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
-            "rule_id": self.rule_id,
-            "message": self.message,
-            "path": self.path,
-            "start": self.start,
-            "end": self.end,
-            "line": self.line,
-            "col": self.col,
-            "severity": self.severity.value,
-            "applied": self.applied,
+            'rule_id': self.rule_id,
+            'message': self.message,
+            'path': self.path,
+            'start': self.start,
+            'end': self.end,
+            'line': self.line,
+            'col': self.col,
+            'severity': self.severity.value,
+            'applied': self.applied,
         }
         if self.fix is not None:
-            d["fix"] = self.fix.to_dict()
+            d['fix'] = self.fix.to_dict()
         return d
 
 
@@ -229,6 +229,38 @@ class RuleContext:
 
     def is_dict_value(self, node: "Node") -> bool:
         return self.dict_pair_role(node) == "value"
+
+    def is_subscript_index_string(self, node: "Node") -> bool:
+        """True if string is a subscript index / slice bound (``obj['k']``).
+
+        Does not match strings nested inside calls or other containers under
+        the index (``obj[foo("k")]`` is False for ``\"k\"``).
+        """
+        if node.kind != "string":
+            return False
+        parent = self.parent(node)
+        if parent is None:
+            return False
+        if parent.kind == "subscript":
+            kids = [c for c in self.children(parent) if c.kind not in ("[", "]")]
+            # kids[0] is the receiver; remaining children are the index
+            return any(c.id == node.id for c in kids[1:])
+        if parent.kind == "slice":
+            for anc in self.ancestors(node):
+                if anc.kind == "subscript":
+                    return True
+                if anc.kind in (
+                    "call",
+                    "argument_list",
+                    "list",
+                    "tuple",
+                    "set",
+                    "dictionary",
+                    "pair",
+                ):
+                    return False
+            return False
+        return False
 
     def enclosing_call_name(self, node: "Node") -> str | None:
         for anc in self.ancestors(node):

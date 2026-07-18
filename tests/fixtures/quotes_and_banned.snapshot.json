@@ -1,7 +1,7 @@
 [
   {
     "rule_id": "Q001",
-    "message": "Use single quotes for dict string literals",
+    "message": "Use single quotes for dict / subscript string literals",
     "severity": "warning",
     "line": 1,
     "col": 6,
@@ -16,7 +16,7 @@
   },
   {
     "rule_id": "Q001",
-    "message": "Use single quotes for dict string literals",
+    "message": "Use single quotes for dict / subscript string literals",
     "severity": "warning",
     "line": 1,
     "col": 13,

@@ -167,6 +167,7 @@ def test_config_load_kebab_case(tmp_path: Path):
             require-decorators = { foo = ["bar"] }
             call-arg-order = { c = ["a", "b"] }
             local-rules = ["x.py"]
+            exclude = ["tests/fixtures"]
             """
         ),
         encoding="utf-8",
@@ -181,7 +182,25 @@ def test_config_load_kebab_case(tmp_path: Path):
     assert cfg.require_decorators == {"foo": ["bar"]}
     assert cfg.call_arg_order == {"c": ["a", "b"]}
     assert cfg.local_rules == ["x.py"]
+    assert cfg.exclude == ["tests/fixtures"]
 
+
+def test_exclude_skips_fixture_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from plintus.engine import _apply_exclude
+
+    root = tmp_path / "proj"
+    (root / "src").mkdir(parents=True)
+    (root / "tests" / "fixtures").mkdir(parents=True)
+    src = root / "src" / "ok.py"
+    bad = root / "tests" / "fixtures" / "bad.py"
+    src.write_text("x = 1\n", encoding="utf-8")
+    bad.write_text("eval('1')\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+    kept = _apply_exclude(
+        [str(src), str(bad)],
+        ["tests/fixtures"],
+    )
+    assert kept == [str(src)]
 
 def test_config_validation_rejects_bad_quotes():
     with pytest.raises(ValueError):
@@ -362,10 +381,15 @@ def test_is_message_context_short_name_matching():
     # short-name match: web.json_response → json_response
     assert is_message_context("web.json_response", ["json_response"], False) is True
     assert is_message_context("logging.info", ["logging.info"], False) is True
+    # known logger receivers (not only logging.*)
+    assert is_message_context("LOG.warning", [], False) is True
+    assert is_message_context("logger.info", [], False) is True
+    assert is_message_context("LOGGER.error", [], False) is True
     # raise
     assert is_message_context(None, [], True) is True
-    # no match
+    # no match — arbitrary *.info is not a logger
     assert is_message_context("foo", ["print"], False) is False
+    assert is_message_context("response.info", [], False) is False
     assert is_message_context(None, [], False) is False
 
 
@@ -405,6 +429,40 @@ def test_q002_logging_info():
     cfg = _cfg(select=["Q002"])
     diags = lint_source("log.py", src, load_rules(cfg), cfg)
     assert any(d.rule_id == "Q002" for d in diags)
+
+
+def test_q002_log_alias_msg_keyword():
+    """LOG.warning(msg='...') is Q002; extra= slots stay Q001 (single quotes)."""
+    src = (
+        "LOG.warning(\n"
+        "    msg='Failed to read verification code from Redis',\n"
+        "    extra={'phone': phone, 'error': str(exc)},\n"
+        ")\n"
+    )
+    cfg = _cfg(select=["Q001", "Q002"])
+    diags = lint_source("log.py", src, load_rules(cfg), cfg)
+    q2 = [d for d in diags if d.rule_id == "Q002"]
+    assert len(q2) == 1
+    assert q2[0].fix is not None
+    assert q2[0].fix.replacement == '"Failed to read verification code from Redis"'
+    # dict slots already single-quoted — no Q001
+    assert not any(d.rule_id == "Q001" for d in diags)
+
+
+def test_q001_extra_slots_prefer_single_quotes():
+    """Dict strings under logging extra= are slots → Q001, not Q002."""
+    src = (
+        'LOG.info(msg="ok", extra={"phone": "x", "status": "fail"})\n'
+    )
+    cfg = _cfg(select=["Q001", "Q002"])
+    diags = lint_source("log.py", src, load_rules(cfg), cfg)
+    assert not any(d.rule_id == "Q002" for d in diags)
+    q1 = sorted(
+        (d for d in diags if d.rule_id == "Q001"),
+        key=lambda d: d.col,
+    )
+    assert len(q1) == 4  # two keys + two values
+    assert all(d.fix and d.fix.replacement.startswith("'") for d in q1)
 
 
 def test_q002_web_json_response_short_name():
@@ -589,12 +647,35 @@ def test_dict_pair_role_tuple_value_not_flagged():
     assert _q001_count('d = {"k": ("a", "b")}\n') == 1
 
 
-def test_dict_pair_role_subscript_value_not_flagged():
-    assert _q001_count('d = {"k": v["x"]}\n') == 1
+def test_dict_pair_role_subscript_value_flags_index():
+    # Outer dict key "k" + subscript index "x" → both Q001
+    assert _q001_count('d = {"k": v["x"]}\n') == 2
 
 
 def test_dict_pair_role_call_value_not_flagged():
     assert _q001_count('d = {"k": foo("x")}\n') == 1
+
+
+def test_q001_subscript_field_access_single_quotes():
+    src = 'x = qwerty["123"]\n'
+    cfg = _cfg(select=["Q001"])
+    diags = lint_source("t.py", src, load_rules(cfg), cfg)
+    assert len(diags) == 1
+    assert diags[0].rule_id == "Q001"
+    assert diags[0].fix is not None
+    assert diags[0].fix.replacement == "'123'"
+
+
+def test_q001_subscript_already_single_ok():
+    assert _q001_count("x = qwerty['123']\n") == 0
+
+
+def test_q001_subscript_ignores_call_arg_in_index():
+    assert _q001_count('x = a[foo("c")]\n') == 0
+
+
+def test_q001_subscript_nested_index():
+    assert _q001_count('x = a[b["c"]]\n') == 1
 
 
 def test_dict_pair_role_list_value_not_flagged():

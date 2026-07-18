@@ -4,7 +4,9 @@ Fast, extensible Python linter for **complex context-dependent rules**.
 
 Complements [Ruff](https://docs.astral.sh/ruff/): use Ruff for standard checks,
 `plintus` for project policies that need CST context (quote roles, call
-patterns, decorator requirements, argument order, …).
+patterns, decorator requirements, argument order, CBP conventions, and a
+clean-room **WPS** pack — many codes registered; see
+[docs/rules-catalog.md](docs/rules-catalog.md) for implemented vs stub status.
 
 ## Install (dev)
 

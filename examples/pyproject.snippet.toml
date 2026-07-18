@@ -1,10 +1,31 @@
-# Snippet: wire local-rules into [tool.plintus]
+# Snippets for [tool.plintus]
 #
-# Drop this section into your pyproject.toml (next to the example in
-# examples/local_rules.py) to enable the X001 NoTodoComments rule.
+# Copy the profile you need into your service pyproject.toml.
 
+# --- default (all registered rules, including WPS) ---
 [tool.plintus]
-local-rules = ["examples/local_rules.py"]
-select = ["X001"]
-workers = 1
-cache = false
+select = ["ALL"]
+dict-quotes = "single"
+message-quotes = "double"
+banned-calls = ["eval", "exec"]
+
+# When Ruff T20 is on, drop the duplicate CBP print rule:
+# ignore = ["L002"]
+
+# Opt out of WPS (MVP + CBP only):
+# ignore = ["WPS"]
+# ignore = ["WPS", "L002"]
+
+# Tighten/relax WPS thresholds (wemake defaults shown):
+# max-arguments = 5
+# max-returns = 5
+# max-cognitive-score = 12
+# min-name-length = 2
+# max-name-length = 45
+
+# --- local-rules demo (examples/local_rules.py) ---
+# [tool.plintus]
+# local-rules = ["examples/local_rules.py"]
+# select = ["X001"]
+# workers = 1
+# cache = false

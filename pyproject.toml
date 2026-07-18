@@ -67,9 +67,14 @@ packages = ["plintus"]
 ignore_missing_imports = true
 
 [tool.plintus]
-select = ["Q001", "Q002", "ORD001", "BAN001", "DEC001"]
+select = ["ALL"]
+# Self-host: WPS strict limits are for consumers; keep MVP+CBP on this repo.
+# E004 copyright headers are a consumer convention — not applied to this tree.
+ignore = ["WPS", "L002", "E004"]
+# Intentional violation fixtures (BAN001 eval, quote samples) — not product code.
+exclude = ["tests/fixtures"]
 workers = 0
 cache = true
-message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "json_response", "web.json_response"]
+message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "logging.critical", "json_response", "web.json_response"]
 dict-quotes = "single"
 message-quotes = "double"

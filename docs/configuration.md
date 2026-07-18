@@ -9,19 +9,77 @@ and `snake_case` forms.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `select` | `list[str]` | `["Q001", "Q002", "ORD001", "BAN001", "DEC001"]` | Rule ids to enable. `"ALL"` enables every loaded rule. Empty `select` enables all (subject to `ignore`). |
-| `ignore` | `list[str]` | `[]` | Rule ids to skip (takes precedence over `select`). |
+| `select` | `list[str]` | `["ALL"]` | Rule ids to enable. Exact ids, family prefixes (`"L"` → `L001`…`L005`, `"SQL"` → `SQL001`, `"S3G"` → `S3G001`; remainder after the prefix must be all digits so `"S"` does not match `S3G001`), or `"ALL"`. Empty `select` also enables all (subject to `ignore`). |
+| `ignore` | `list[str]` | `[]` | Rule ids / family prefixes to skip (takes precedence over `select`). Empty by default — all registered rules (including WPS) are enabled. |
+| `exclude` | `list[str]` | `[]` | Path prefixes to skip after discovery (matched against the path relative to cwd, e.g. `"tests/fixtures"`). |
 | `workers` | `int` | `0` | `0` = auto (pool size = `min(32, cpu_count)` above the file-count threshold), `1` = disable multiprocessing, `N` = explicit pool size. Negative values are rejected. |
 | `worker-threshold` | `int` | `32` | Minimum file count before workers are spawned. Below this, lint runs inline. |
 | `cache` | `bool` | `true` | Enable the content-addressed cache. |
 | `cache-dir` | `str` | `".plintus_cache"` | Directory for cache files. |
-| `dict-quotes` | `"single" \| "double"` | `"single"` | Quote style for strings inside dict literals (Q001). |
+| `dict-quotes` | `"single" \| "double"` | `"single"` | Quote style for dict literals and subscript indexes (Q001), e.g. `obj['key']`. |
 | `message-quotes` | `"single" \| "double"` | `"double"` | Quote style for message strings (Q002). |
 | `message-calls` | `list[str]` | see below | Call names whose string arguments are treated as messages. |
 | `banned-calls` | `list[str]` | `["eval", "exec"]` | Call names forbidden by BAN001. |
 | `require-decorators` | `dict[str, list[str]]` | `{}` | Function name → list of required decorator names (DEC001). |
 | `call-arg-order` | `dict[str, list[str]]` | `{}` | Call name → required keyword argument order (ORD001). |
 | `local-rules` | `list[str]` | `[]` | Paths to Python files defining custom rules. Relative paths resolve against the pyproject directory. |
+
+### WPS thresholds
+
+Defaults match [wemake-python-styleguide](https://wemake-python-styleguide.readthedocs.io/en/latest/pages/usage/configuration.html).
+Keys accept kebab-case and snake_case.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `min-name-length` | `2` | Minimum effective name length (WPS111) |
+| `max-name-length` | `45` | Maximum name length (WPS118) |
+| `nested-classes-whitelist` | `["Meta","Params","Config"]` | Allowed nested class names (WPS431) |
+| `max-noqa-comments` | `10` | Max `# noqa` comments (WPS402) |
+| `allowed-domain-names` | `[]` | Extra allowed short/domain names |
+| `forbidden-domain-names` | `[]` | Extra forbidden variable names |
+| `known-enum-bases` | `[]` | Extra enum-like base names (WPS115) |
+| `max-returns` | `5` | Max `return` statements (WPS212) |
+| `max-local-variables` | `5` | Max locals (WPS210) |
+| `max-expressions` | `9` | Max expressions in a function (WPS213) |
+| `max-arguments` | `5` | Max params excluding self/cls/mcs (WPS211) |
+| `max-module-members` | `7` | Max top-level classes/functions (WPS202) |
+| `max-methods` | `7` | Max methods per class (WPS214) |
+| `max-line-complexity` | `14` | Max nodes per line (WPS221) |
+| `max-jones-score` | `12` | Module Jones score (WPS200) |
+| `max-imports` | `12` | Max import statements (WPS201) |
+| `max-imported-names` | `50` | Max imported names (WPS203) |
+| `max-base-classes` | `3` | Max bases (WPS215) |
+| `max-decorators` | `5` | Max decorators (WPS216) |
+| `max-string-usages` | `3` | Max repeated string literals (WPS226) |
+| `max-awaits` | `5` | Max awaits (WPS217) |
+| `max-try-body-length` | `1` | Max statements in try body (WPS229) |
+| `max-module-expressions` | `7` | Overused module expressions (WPS204) |
+| `max-function-expressions` | `4` | Overused expressions inside a function (WPS204) |
+| `max-asserts` | `5` | Max asserts (WPS218) |
+| `max-access-level` | `4` | Max attribute chain depth (WPS219) |
+| `max-attributes` | `6` | Max public instance attrs (WPS230) |
+| `max-raises` | `3` | Max raises (WPS238) |
+| `max-except-exceptions` | `3` | Max exceptions in except (WPS239) |
+| `max-cognitive-score` | `12` | Cognitive complexity per function (WPS231) |
+| `max-cognitive-average` | `8` | Average cognitive complexity (WPS232) |
+| `max-call-level` | `3` | Max call chain depth (WPS233) |
+| `max-annotation-complexity` | `3` | Nested annotation depth (WPS234) |
+| `max-import-from-members` | `8` | Max names in import-from (WPS235) |
+| `max-tuple-unpack-length` | `4` | Max unpack targets (WPS236) |
+| `max-type-params` | `6` | Max PEP 695 type params (WPS240) |
+| `max-match-subjects` | `7` | Max match subjects (WPS241) |
+| `max-match-cases` | `7` | Max match cases (WPS242) |
+| `max-lines-in-finally` | `2` | Max finally body stmts (WPS243) |
+| `max-conditions` | `4` | Max boolean conditions (WPS222) |
+
+Also accepted (lists):
+
+- `allowed-module-metadata` / `forbidden-module-metadata` — WPS410 (defaults
+  forbid `copyright` / `license` when `forbidden-module-metadata` is empty).
+- `forbidden-inline-ignore` — WPS461 (codes banned in `# noqa: …`; empty = off).
+
+Integer: `exps-for-one-empty-line` (default `2`) — reserved for WPS473
+(currently planned; loaded and fingerprinted, not yet checked).
 
 ### Default `message-calls`
 
@@ -68,12 +126,13 @@ The cache key is `SHA-256(source || config_fingerprint || rules_hash || core_api
 
 ```toml
 [tool.plintus]
-select = ["Q001", "Q002", "BAN001", "DEC001"]
+select = ["ALL"]
+# ignore = ["WPS"]  # optional: drop the WPS family
 workers = 0
 cache = true
 dict-quotes = "single"
 message-quotes = "double"
-message-calls = ["print", "logging.info", "logging.warning", "logging.error", "json_response"]
+message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "logging.critical", "json_response", "web.json_response"]
 banned-calls = ["eval", "exec"]
 require-decorators = { handle_event = ["login_required"] }
 call-arg-order = { "client.request" = ["method", "url", "timeout"] }

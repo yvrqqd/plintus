@@ -81,4 +81,5 @@ in the worker path.
 
 Only `error`-severity diagnostics fail the process (exit 1). `warning` /
 `info` / `hint` report but exit 0. This lets CI treat style warnings as
-non-blocking while policy rules (`BAN001`, `DEC001`) fail builds.
+non-blocking while policy rules (`BAN001`, `DEC001`) and CBP / WPS rules
+(which are also `error` by default) fail builds.

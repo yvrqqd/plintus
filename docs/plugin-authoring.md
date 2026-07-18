@@ -56,7 +56,7 @@ A rule file is loaded by either:
 | `id` | `str` | Unique rule id (required). |
 | `message` | `str` | Default message used when `ctx.report` omits one. |
 | `severity` | `Severity` | `ERROR`, `WARNING`, `INFO`, or `HINT`. |
-| `targets` | `Sequence[str]` | CST node kinds to select via `doc.select`. Empty means no nodes are passed (use `ctx.document.select_all()` explicitly for whole-tree scans). |
+| `targets` | `Sequence[str]` | CST node kinds to select via `doc.select`. Empty means the whole tree (`doc.select_all()`), so rules can scan every node without listing kinds. |
 | `api_version` | `str` | Must match `plintus.API_VERSION` (`"1"`); mismatched rules raise `PluginError` at load time. |
 
 ## `RuleContext` API
@@ -65,13 +65,14 @@ A rule file is loaded by either:
 |--------|-------------|
 | `ctx.nodes` | The selected `Node` list (per `targets`). |
 | `ctx.document` | The `Document` (CST). |
-| `ctx.config` | A typed `RuleContextConfig` with `.get(key, default)` / `ctx.config["key"]` access. Fields: `message_calls`, `dict_quotes`, `message_quotes`, `banned_calls`, `require_decorators`, `call_arg_order`. |
+| `ctx.config` | A typed `RuleContextConfig` with `.get(key, default)` / `ctx.config["key"]` access. Core fields: `message_calls`, `dict_quotes`, `message_quotes`, `banned_calls`, `require_decorators`, `call_arg_order`. WPS thresholds also included (e.g. `min_name_length`, `max_name_length`, `nested_classes_whitelist`, `max_returns`, `max_local_variables`, `max_arguments`, `max_cognitive_score`, `max_imports`, … — see `RuleContextConfig` / `Config` in `config.py`). |
 | `ctx.path` / `ctx.source` | File path and source text. |
 | `ctx.report(node, message=None, *, fix=None, severity=None)` | Emit a `Diagnostic`. |
 | `ctx.ancestors(node)` / `ctx.parent(node)` / `ctx.children(node)` | CST navigation. |
 | `ctx.has_ancestor_kind(node, kinds)` | True if any ancestor matches one of `kinds`. |
 | `ctx.in_dict_string(node)` / `ctx.dict_pair_role(node)` | `"key"` / `"value"` / `None` for strings in dict pairs. |
 | `ctx.is_dict_key(node)` / `ctx.is_dict_value(node)` | Convenience over `dict_pair_role`. |
+| `ctx.is_subscript_index_string(node)` | True for `obj['key']` / slice-bound string indexes (not `obj[foo("k")]`). |
 | `ctx.enclosing_call_name(node)` | Dotted name of the nearest enclosing `call`, or `None`. |
 | `ctx.is_raise_message(node)` | True if the string is under a `raise_statement`. |
 
@@ -105,7 +106,13 @@ A string is treated as a "message" (Q002) when:
 - it is under a `raise_statement`, **or**
 - its enclosing call name is in `message_calls`, matched either exactly
   (`logging.info`) or by final segment (`web.json_response` matches a
-  configured `json_response`).
+  configured `json_response`), **or**
+- it is a log method on a known logger receiver (`LOG.warning`,
+  `logger.info`, `logging.error`, …) — same recognition as L001/L004,
+
+**and** the string is not inside a dict literal or a subscript index.
+Dict keys/values (including logging `extra={...}` slots) and field access
+like `obj['key']` stay under Q001 / `dict_quotes` (default single quotes).
 
 ## Example
 

@@ -47,6 +47,11 @@ def load_rules(config: Config) -> list[Rule]:
         else:  # pragma: no cover - Python <3.10 style EntryPoints
             selected = eps.get("plintus.plugins", [])  # type: ignore[attr-defined]
         for ep in selected:
+            # Skip the package's own `builtin` entry point — we always call
+            # register() below so builtins load even without install metadata,
+            # and so we do not build the full rule set twice.
+            if ep.name == "builtin":
+                continue
             loaded = ep.load()
             if callable(loaded):
                 result = loaded()
@@ -75,7 +80,7 @@ def load_rules(config: Config) -> list[Rule]:
             raise PluginError(f"rule without id: {r!r}")
         if getattr(r, "api_version", "1") != API_VERSION:
             raise PluginError(
-                f"rule {r.id} requires API {getattr(r, 'api_version', '?')}, "
+                f"rule {r.id} requires API {getattr(r, "api_version", "?")}, "
                 f"plintus speaks {API_VERSION}"
             )
         if r.id in seen:
@@ -121,16 +126,33 @@ def rules_hash(rules: Sequence[Rule]) -> str:
     bumping ``api_version`` invalidates the cache (prevents stale diagnostics)."""
     import inspect
 
+    from plintus.rules.wps._factory import _CHECKER_ATTR
+
     parts: list[str] = []
     for r in sorted(rules, key=lambda x: x.id):
         impl_hash = ""
-        check = getattr(type(r), "check", None)
-        if check is not None:
+        # Factory-built WPS rules share a wrapper `check`; hash the closed-over checker.
+        checker = getattr(r, _CHECKER_ATTR, None)
+        if checker is not None:
             try:
-                impl_hash = _core.hash_text(inspect.getsource(check))
+                src = inspect.getsource(checker)
+                qn = getattr(checker, "__qualname__", repr(checker))
+                impl_hash = _core.hash_text(f"{qn}:{src}")
             except (OSError, TypeError):
-                # Source unavailable (e.g. frozen, C-defined) — fall back to qualname.
-                impl_hash = f"{type(r).__module__}.{type(r).__qualname__}.{check.__qualname__}"
+                impl_hash = (
+                    f"{getattr(checker, '__module__', '')}."
+                    f"{getattr(checker, '__qualname__', repr(checker))}"
+                )
+        else:
+            check = getattr(type(r), "check", None)
+            if check is not None:
+                try:
+                    impl_hash = _core.hash_text(inspect.getsource(check))
+                except (OSError, TypeError):
+                    # Source unavailable (e.g. frozen, C-defined) — fall back to qualname.
+                    impl_hash = (
+                        f"{type(r).__module__}.{type(r).__qualname__}.{check.__qualname__}"
+                    )
         parts.append(f"{r.id}:{getattr(r, 'api_version', '1')}:{impl_hash}")
     return _core.hash_text("|".join(parts) + f"|core:{_core.api_version()}")
 
@@ -219,18 +241,60 @@ def _diagnostic_from_dict(d: dict[str, Any]) -> Diagnostic:
     )
 
 
+_worker_rules_by_id: dict[str, Rule] | None = None
+
+
+def _worker_builtin_rules() -> dict[str, Rule]:
+    """Build the builtin rule map once per worker process."""
+    global _worker_rules_by_id
+    if _worker_rules_by_id is None:
+        from plintus.rules import register
+
+        _worker_rules_by_id = {r.id: r for r in register()}
+    return _worker_rules_by_id
+
+
 def _worker_lint_file(args: tuple[str, list[str], dict[str, Any]]) -> list[dict[str, Any]]:
     """Picklable worker entry: reconstruct config/rules by id from builtins + config."""
     path, rule_ids, config_dict = args
     from plintus.config import Config
-    from plintus.rules import register
 
     config = Config(**{k: v for k, v in config_dict.items() if k in Config.__dataclass_fields__})
-    all_rules = {r.id: r for r in register()}
+    all_rules = _worker_builtin_rules()
     # local rules not supported in workers for MVP unless already importable
     rules = [all_rules[i] for i in rule_ids if i in all_rules]
     diags = lint_file(path, rules, config)
     return [d.to_dict() for d in diags]
+
+
+def _apply_exclude(files: Sequence[str], patterns: Sequence[str]) -> list[str]:
+    """Drop paths whose cwd-relative form equals or is under an exclude prefix."""
+    if not patterns:
+        return list(files)
+    normalized = [_normalize_exclude(p) for p in patterns]
+    normalized = [p for p in normalized if p]
+    if not normalized:
+        return list(files)
+    cwd = Path.cwd().resolve()
+    kept: list[str] = []
+    for path in files:
+        rel = _cwd_relative_posix(path, cwd)
+        if any(rel == pat or rel.startswith(pat + "/") for pat in normalized):
+            continue
+        kept.append(path)
+    return kept
+
+
+def _normalize_exclude(pattern: str) -> str:
+    return pattern.strip().replace("\\", "/").lstrip("./").rstrip("/")
+
+
+def _cwd_relative_posix(path: str, cwd: Path) -> str:
+    p = Path(path)
+    try:
+        return p.resolve().relative_to(cwd).as_posix()
+    except ValueError:
+        return p.as_posix().lstrip("./")
 
 
 def lint_paths(
@@ -244,6 +308,7 @@ def lint_paths(
     from plintus.document import discover
 
     files = discover(list(paths) if paths else ["."])
+    files = _apply_exclude(files, config.exclude)
     rules = load_rules(config)
     rule_ids = [r.id for r in rules]
 

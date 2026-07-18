@@ -25,12 +25,14 @@ plintus check [PATHS...] [options]
 | `--fix` | Apply safe fixes in place (rewrites files). |
 | `--unsafe` | Also apply fixes marked `safety="unsafe"` (use with `--fix`). |
 | `--diff` | Print a unified diff of fixes instead of writing them. Does not modify files. |
-| `--select IDS` | Comma-separated rule ids to enable (overrides `[tool.plintus] select`). |
-| `--ignore IDS` | Comma-separated rule ids to ignore. |
+| `--select IDS` | Comma-separated rule ids or family prefixes to enable (overrides `[tool.plintus] select`). Prefixes like `L`, `WPS`, `S3G` match that family (remainder must be all digits). |
+| `--ignore IDS` | Comma-separated rule ids or family prefixes to ignore. |
 | `--output-format {text,json}` | Output style. Default `text`. JSON is a list of diagnostic dicts (see `Diagnostic.to_dict`). |
 | `--no-cache` | Disable the content-addressed cache for this run. |
 | `--workers N` | `0` = auto (default), `1` = disable multiprocessing, `N` = pool size. Negative values are rejected. |
 | `--config PATH` | Path to a `pyproject.toml` with a `[tool.plintus]` section. Defaults to walking up from cwd. |
+
+Path skipping uses the config-only `exclude` key (list of path prefixes relative to cwd, e.g. `"tests/fixtures"`). There is no `--exclude` CLI flag.
 
 ### Exit codes
 
@@ -40,7 +42,11 @@ plintus check [PATHS...] [options]
 | `1`  | At least one diagnostic with `severity = "error"` was reported. |
 | `2`  | Invalid arguments (argparse error). |
 
-> **Note:** Only `error`-severity diagnostics fail the process. `Q001`/`Q002`/`ORD001` are warnings; `BAN001`/`DEC001` are errors. Use `--select`/`--ignore` or the `ignore` config key to control which rules run.
+> **Note:** Only `error`-severity diagnostics fail the process. Built-in
+> severities: `Q001` / `Q002` / `ORD001` are **warnings**; MVP policy rules
+> (`BAN001`, `DEC001`) plus CBP and WPS rules are **errors** unless you change
+> severity in a plugin. Warnings, info, and hints do not fail the run. Use
+> `--select`/`--ignore` or the `ignore` config key to control which rules run.
 
 ### Examples
 

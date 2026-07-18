@@ -13,31 +13,24 @@ from plintus.rules.string_utils import (
 
 
 class DictQuotes(Rule):
-    """Enforce quote style for strings inside dict literals.
+    """Enforce quote style for dict literals and subscript field access.
 
-    Defers to Q002 for *values* under message / user-facing calls
-    (logging, raise, json_response, …). Dict *keys* stay under Q001.
+    Covers dict keys/values (including logging ``extra={...}`` slots) and
+    string indexes like ``obj['key']`` via ``dict_quotes`` (default single).
+    Message strings outside those contexts are Q002.
     Skips literals that cannot safely use the configured quote style
     (e.g. f\"...'{id}'...\").
     """
 
     id = "Q001"
-    message = "Dict string literals should use the configured quote style"
+    message = "Dict / subscript string literals should use the configured quote style"
     severity = Severity.WARNING
     targets = ("string",)
 
     def check(self, ctx: RuleContext) -> None:
         wanted = ctx.config.get("dict_quotes", "single")
-        message_calls = list(ctx.config.get("message_calls", []))
         for node in ctx.nodes:
-            if not ctx.in_dict_string(node):
-                continue
-            call_name = ctx.enclosing_call_name(node)
-            in_message = is_message_context(
-                call_name, message_calls, ctx.is_raise_message(node)
-            )
-            # Message calls own dict *values*; keys still use dict quote style
-            if in_message and ctx.is_dict_value(node):
+            if not (ctx.in_dict_string(node) or ctx.is_subscript_index_string(node)):
                 continue
             text = node.text()
             parsed = parse_string_literal(text)
@@ -55,13 +48,17 @@ class DictQuotes(Rule):
                 fix = Fix.replace(node, new_text, safety="safe" if safe else "unsafe")
             ctx.report(
                 node,
-                f"Use {wanted} quotes for dict string literals",
+                f"Use {wanted} quotes for dict / subscript string literals",
                 fix=fix,
             )
 
 
 class MessageQuotes(Rule):
-    """Enforce quote style for raise / logging / print / json_response messages."""
+    """Enforce quote style for raise / logging / print / json_response messages.
+
+    Does not own dict literals or subscript indexes (``extra={...}`` slots and
+    ``obj['key']`` stay under Q001 / ``dict_quotes``).
+    """
 
     id = "Q002"
     message = "Message strings should use the configured quote style"
@@ -76,8 +73,8 @@ class MessageQuotes(Rule):
             is_raise = ctx.is_raise_message(node)
             if not is_message_context(call_name, message_calls, is_raise):
                 continue
-            # Dict keys under json_response are not "messages"
-            if ctx.is_dict_key(node):
+            # Dict / subscript field names use Q001, not Q002
+            if ctx.in_dict_string(node) or ctx.is_subscript_index_string(node):
                 continue
             text = node.text()
             parsed = parse_string_literal(text)

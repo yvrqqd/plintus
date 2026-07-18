@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 
+def _default_nested_classes_whitelist() -> list[str]:
+    return ["Meta", "Params", "Config"]
+
+
 @dataclass
 class RuleContextConfig:
     """Subset of :class:`Config` exposed to rules via ``RuleContext.config``.
@@ -28,6 +32,53 @@ class RuleContextConfig:
     banned_calls: list[str]
     require_decorators: dict[str, list[str]]
     call_arg_order: dict[str, list[str]]
+    # WPS thresholds (wemake defaults)
+    min_name_length: int = 2
+    max_name_length: int = 45
+    nested_classes_whitelist: list[str] = field(
+        default_factory=_default_nested_classes_whitelist
+    )
+    max_noqa_comments: int = 10
+    allowed_domain_names: list[str] = field(default_factory=list)
+    forbidden_domain_names: list[str] = field(default_factory=list)
+    allowed_module_metadata: list[str] = field(default_factory=list)
+    forbidden_module_metadata: list[str] = field(default_factory=list)
+    forbidden_inline_ignore: list[str] = field(default_factory=list)
+    exps_for_one_empty_line: int = 2
+    known_enum_bases: list[str] = field(default_factory=list)
+    max_returns: int = 5
+    max_local_variables: int = 5
+    max_expressions: int = 9
+    max_arguments: int = 5
+    max_module_members: int = 7
+    max_methods: int = 7
+    max_line_complexity: int = 14
+    max_jones_score: int = 12
+    max_imports: int = 12
+    max_imported_names: int = 50
+    max_base_classes: int = 3
+    max_decorators: int = 5
+    max_string_usages: int = 3
+    max_awaits: int = 5
+    max_try_body_length: int = 1
+    max_module_expressions: int = 7
+    max_function_expressions: int = 4
+    max_asserts: int = 5
+    max_access_level: int = 4
+    max_attributes: int = 6
+    max_raises: int = 3
+    max_except_exceptions: int = 3
+    max_cognitive_score: int = 12
+    max_cognitive_average: int = 8
+    max_call_level: int = 3
+    max_annotation_complexity: int = 3
+    max_import_from_members: int = 8
+    max_tuple_unpack_length: int = 4
+    max_type_params: int = 6
+    max_match_subjects: int = 7
+    max_match_cases: int = 7
+    max_lines_in_finally: int = 2
+    max_conditions: int = 4
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
@@ -44,8 +95,11 @@ class RuleContextConfig:
 
 @dataclass
 class Config:
-    select: list[str] = field(default_factory=lambda: ["Q001", "Q002", "ORD001", "BAN001", "DEC001"])
+    select: list[str] = field(default_factory=lambda: ["ALL"])
+    # All registered rules enabled by default (including WPS); use ignore to opt out.
     ignore: list[str] = field(default_factory=list)
+    # Path prefixes relative to cwd (e.g. "tests/fixtures") skipped during discovery.
+    exclude: list[str] = field(default_factory=list)
     workers: int = 0  # 0 = auto, 1 = disable, N = pool size
     worker_threshold: int = 32
     cache: bool = True
@@ -70,16 +124,65 @@ class Config:
     # call name -> required keyword arg order (ORD001)
     call_arg_order: dict[str, list[str]] = field(default_factory=dict)
     local_rules: list[str] = field(default_factory=list)
+    # WPS thresholds
+    min_name_length: int = 2
+    max_name_length: int = 45
+    nested_classes_whitelist: list[str] = field(
+        default_factory=_default_nested_classes_whitelist
+    )
+    max_noqa_comments: int = 10
+    allowed_domain_names: list[str] = field(default_factory=list)
+    forbidden_domain_names: list[str] = field(default_factory=list)
+    allowed_module_metadata: list[str] = field(default_factory=list)
+    forbidden_module_metadata: list[str] = field(default_factory=list)
+    forbidden_inline_ignore: list[str] = field(default_factory=list)
+    exps_for_one_empty_line: int = 2
+    known_enum_bases: list[str] = field(default_factory=list)
+    max_returns: int = 5
+    max_local_variables: int = 5
+    max_expressions: int = 9
+    max_arguments: int = 5
+    max_module_members: int = 7
+    max_methods: int = 7
+    max_line_complexity: int = 14
+    max_jones_score: int = 12
+    max_imports: int = 12
+    max_imported_names: int = 50
+    max_base_classes: int = 3
+    max_decorators: int = 5
+    max_string_usages: int = 3
+    max_awaits: int = 5
+    max_try_body_length: int = 1
+    max_module_expressions: int = 7
+    max_function_expressions: int = 4
+    max_asserts: int = 5
+    max_access_level: int = 4
+    max_attributes: int = 6
+    max_raises: int = 3
+    max_except_exceptions: int = 3
+    max_cognitive_score: int = 12
+    max_cognitive_average: int = 8
+    max_call_level: int = 3
+    max_annotation_complexity: int = 3
+    max_import_from_members: int = 8
+    max_tuple_unpack_length: int = 4
+    max_type_params: int = 6
+    max_match_subjects: int = 7
+    max_match_cases: int = 7
+    max_lines_in_finally: int = 2
+    max_conditions: int = 4
     # Directory used to resolve relative local_rules paths (set by load_config
     # to the pyproject parent). Not part of the fingerprint.
     _base_dir: Path | None = field(default=None, repr=False, compare=False)
 
     def enabled(self, rule_id: str) -> bool:
-        if rule_id in self.ignore:
+        if _matches_any(rule_id, self.ignore):
             return False
         if not self.select:
             return True
-        return rule_id in self.select or "ALL" in self.select
+        if "ALL" in self.select:
+            return True
+        return _matches_any(rule_id, self.select)
 
     def fingerprint(self) -> str:
         # Exclude private fields (leading underscore) like _base_dir so cache
@@ -90,12 +193,7 @@ class Config:
         return json.dumps(payload, sort_keys=True, default=str)
 
     def to_rule_context(self) -> RuleContextConfig:
-        """Build the typed config bag handed to ``RuleContext``.
-
-        Single source of truth — replaces the hand-written ``config_dict``
-        that previously existed in both ``lint_source`` and
-        ``_lint_with_workers`` and could drift from :class:`Config`.
-        """
+        """Build the typed config bag handed to ``RuleContext``."""
         return RuleContextConfig(
             message_calls=list(self.message_calls),
             dict_quotes=self.dict_quotes,
@@ -103,6 +201,50 @@ class Config:
             banned_calls=list(self.banned_calls),
             require_decorators={k: list(v) for k, v in self.require_decorators.items()},
             call_arg_order={k: list(v) for k, v in self.call_arg_order.items()},
+            min_name_length=self.min_name_length,
+            max_name_length=self.max_name_length,
+            nested_classes_whitelist=list(self.nested_classes_whitelist),
+            max_noqa_comments=self.max_noqa_comments,
+            allowed_domain_names=list(self.allowed_domain_names),
+            forbidden_domain_names=list(self.forbidden_domain_names),
+            allowed_module_metadata=list(self.allowed_module_metadata),
+            forbidden_module_metadata=list(self.forbidden_module_metadata),
+            forbidden_inline_ignore=list(self.forbidden_inline_ignore),
+            exps_for_one_empty_line=self.exps_for_one_empty_line,
+            known_enum_bases=list(self.known_enum_bases),
+            max_returns=self.max_returns,
+            max_local_variables=self.max_local_variables,
+            max_expressions=self.max_expressions,
+            max_arguments=self.max_arguments,
+            max_module_members=self.max_module_members,
+            max_methods=self.max_methods,
+            max_line_complexity=self.max_line_complexity,
+            max_jones_score=self.max_jones_score,
+            max_imports=self.max_imports,
+            max_imported_names=self.max_imported_names,
+            max_base_classes=self.max_base_classes,
+            max_decorators=self.max_decorators,
+            max_string_usages=self.max_string_usages,
+            max_awaits=self.max_awaits,
+            max_try_body_length=self.max_try_body_length,
+            max_module_expressions=self.max_module_expressions,
+            max_function_expressions=self.max_function_expressions,
+            max_asserts=self.max_asserts,
+            max_access_level=self.max_access_level,
+            max_attributes=self.max_attributes,
+            max_raises=self.max_raises,
+            max_except_exceptions=self.max_except_exceptions,
+            max_cognitive_score=self.max_cognitive_score,
+            max_cognitive_average=self.max_cognitive_average,
+            max_call_level=self.max_call_level,
+            max_annotation_complexity=self.max_annotation_complexity,
+            max_import_from_members=self.max_import_from_members,
+            max_tuple_unpack_length=self.max_tuple_unpack_length,
+            max_type_params=self.max_type_params,
+            max_match_subjects=self.max_match_subjects,
+            max_match_cases=self.max_match_cases,
+            max_lines_in_finally=self.max_lines_in_finally,
+            max_conditions=self.max_conditions,
         )
 
     def __post_init__(self) -> None:
@@ -116,6 +258,25 @@ class Config:
             raise ValueError(f"workers must be >= 0 (0=auto, 1=disable, N=pool), got {self.workers}")
         if self.worker_threshold < 1:
             raise ValueError(f"worker_threshold must be >= 1, got {self.worker_threshold}")
+
+
+def _matches_any(rule_id: str, entries: list[str]) -> bool:
+    return any(_matches_rule_id(rule_id, entry) for entry in entries)
+
+
+def _matches_rule_id(rule_id: str, entry: str) -> bool:
+    """Exact id or family prefix (``L`` → ``L001``, ``SQL`` → ``SQL001``).
+
+    A prefix matches when ``rule_id`` starts with ``entry`` and the remainder
+    is all digits, so ``E`` matches ``E001`` but not ``ERR``, and ``S`` does
+    not match ``S3G001`` (use ``S3G`` for that family).
+    """
+    if rule_id == entry:
+        return True
+    if not entry or not rule_id.startswith(entry):
+        return False
+    rest = rule_id[len(entry) :]
+    return bool(rest) and rest.isdigit()
 
 
 def find_pyproject(start: Path | None = None) -> Path | None:
@@ -147,12 +308,81 @@ def load_config(
     return cfg
 
 
+_STR_LIST_KEYS = (
+    "allowed_domain_names",
+    "forbidden_domain_names",
+    "allowed_module_metadata",
+    "forbidden_module_metadata",
+    "forbidden_inline_ignore",
+    "known_enum_bases",
+    "nested_classes_whitelist",
+)
+
+_INT_KEYS = (
+    "min_name_length",
+    "max_name_length",
+    "max_noqa_comments",
+    "exps_for_one_empty_line",
+    "max_returns",
+    "max_local_variables",
+    "max_expressions",
+    "max_arguments",
+    "max_module_members",
+    "max_methods",
+    "max_line_complexity",
+    "max_jones_score",
+    "max_imports",
+    "max_imported_names",
+    "max_base_classes",
+    "max_decorators",
+    "max_string_usages",
+    "max_awaits",
+    "max_try_body_length",
+    "max_module_expressions",
+    "max_function_expressions",
+    "max_asserts",
+    "max_access_level",
+    "max_attributes",
+    "max_raises",
+    "max_except_exceptions",
+    "max_cognitive_score",
+    "max_cognitive_average",
+    "max_call_level",
+    "max_annotation_complexity",
+    "max_import_from_members",
+    "max_tuple_unpack_length",
+    "max_type_params",
+    "max_match_subjects",
+    "max_match_cases",
+    "max_lines_in_finally",
+    "max_conditions",
+)
+
+
+def _set_both(cfg: Config, m: dict[str, Any], snake: str, *, as_list: bool = False, as_int: bool = False) -> None:
+    kebab = snake.replace("_", "-")
+    if kebab in m:
+        val = m[kebab]
+    elif snake in m:
+        val = m[snake]
+    else:
+        return
+    if as_list:
+        setattr(cfg, snake, list(val))
+    elif as_int:
+        setattr(cfg, snake, int(val))
+    else:
+        setattr(cfg, snake, val)
+
+
 def _from_mapping(m: dict[str, Any]) -> Config:
     cfg = Config()
     if "select" in m:
         cfg.select = list(m["select"])
     if "ignore" in m:
         cfg.ignore = list(m["ignore"])
+    if "exclude" in m:
+        cfg.exclude = list(m["exclude"])
     if "workers" in m:
         cfg.workers = int(m["workers"])
     if "worker-threshold" in m:
@@ -193,6 +423,10 @@ def _from_mapping(m: dict[str, Any]) -> Config:
         cfg.local_rules = list(m["local-rules"])
     if "local_rules" in m:
         cfg.local_rules = list(m["local_rules"])
+    for key in _STR_LIST_KEYS:
+        _set_both(cfg, m, key, as_list=True)
+    for key in _INT_KEYS:
+        _set_both(cfg, m, key, as_int=True)
     return cfg
 
 

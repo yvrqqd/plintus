@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from plintus.rules.cbp_helpers import is_log_method_call
+
 _STRING_RE = re.compile(
     r"^(?P<prefix>[rRuUfFbB]*)(?P<quote>'''|\"\"\"|'|\")(?P<body>.*)(?P=quote)$",
     re.DOTALL,
@@ -113,4 +115,7 @@ def is_message_context(call_name: str | None, message_calls: list[str], is_raise
         return True
     # Allow matching the final attribute: web.json_response → json_response
     short = call_name.rsplit(".", 1)[-1]
-    return short in names
+    if short in names:
+        return True
+    # LOG.warning / logger.info / … — same receivers as L001/L004
+    return is_log_method_call(call_name, message_calls)

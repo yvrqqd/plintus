@@ -231,6 +231,23 @@ def test_cache_hit_and_invalidation(tmp_path: Path):
     assert any(d.message == "DIFFERENT message" for d in d3)
 
 
+def test_wps_factory_rules_have_distinct_hashes():
+    """Factory-built WPS rules must not share one hash via the wrapper check()."""
+    from plintus.rules.wps._factory import make_rule
+
+    def checker_a(ctx):
+        ctx.report(ctx.nodes[0] if ctx.nodes else None, "a")
+
+    def checker_b(ctx):
+        for node in ctx.nodes:
+            ctx.report(node, "b")
+
+    ra = make_rule("WPS999A", "a", (), checker_a)
+    rb = make_rule("WPS999B", "b", (), checker_b)
+    # Same wrapper shape, different closed-over checkers → different hashes
+    assert rules_hash([ra]) != rules_hash([rb])
+
+
 def test_snapshot_diagnostics_json():
     """Golden snapshot. Fails if the snapshot file is missing (no auto-create).
 
@@ -274,7 +291,7 @@ def test_api_version_matches():
 
 
 def test_q001_skips_json_response_fstring_with_inner_quotes():
-    """Dict value inside json_response with f\"...'{x}'...\" is message context / unsafe."""
+    """Dict value f\"...'{x}'...\" cannot safely switch to single quotes."""
     src = (
         "from aiohttp import web\n"
         "async def delete_client(self, client_id: str):\n"
@@ -284,6 +301,8 @@ def test_q001_skips_json_response_fstring_with_inner_quotes():
     cfg = _cfg(select=["Q001", "Q002"])
     diags = lint_source("view.py", src, load_rules(cfg), cfg)
     assert not any(d.rule_id == "Q001" for d in diags)
+    # f-string is inside a dict → Q002 does not own it
+    assert not any(d.rule_id == "Q002" for d in diags)
 
 
 def test_q001_still_flags_plain_dict_double_quotes():
