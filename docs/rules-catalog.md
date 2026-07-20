@@ -27,15 +27,18 @@ Status: **implemented** = dedicated checker runs; **partial** = heuristic / best
 | ------ | --------------------------------------------------------- |
 | Q001   | Dict / subscript strings (incl. `extra=` slots, `obj['k']`) → single quotes |
 | Q002   | Message / raise / logging(/print) strings → double quotes                   |
-| I001   | Import sections: stdlib → third-party → `cbp_*` → first-party (safe `--fix`) |
+| I001   | Import sections: stdlib → third-party → `cbp_*` → first-party; import-before-from + name sort (safe `--fix`) |
 | ORD001 | Configured call keyword-arg order (safe `--fix`)      |
 | BAN001 | Configured banned calls (`eval`/`exec` by default)        |
 | DEC001 | Required decorators on named functions                    |
 
 **I001 notes:** classifies without import resolution (`sys.stdlib_module_names`,
-`known-first-party`, `cbp-import-prefix`). `__future__` / docstring / copyright
-stay in the preamble. Mid-block comments between imports are not preserved on
-`--fix`. Family prefix `"I"` selects/ignores `I001`.
+`known-first-party`, `cbp-import-prefix`). Within each section: all `import`
+statements (alphabetical), then all `from` statements (alphabetical); names
+inside `from … import a, b` / `import a, b` are sorted too. `__future__` /
+docstring / copyright stay in the preamble. Same-line trailing comments travel
+with their import on `--fix`; mid-block full-line comments between imports are
+not preserved. Family prefix `"I"` selects/ignores `I001`.
 
 ---
 
@@ -430,7 +433,7 @@ Family prefixes work in `select` / `ignore` (e.g. `"L"` enables `L001`…`L006`)
 | ORD001 | call keyword order (safe `--fix`)                    |                                                           |
 | BAN001 | banned calls                                          |                                                           |
 | DEC001 | required decorators                                   |                                                           |
-| I001   | import section order (stdlib / third / cbp_* / app)   |                                                           |
+| I001   | import section order (stdlib / third / cbp_* / app); import-before-from + name sort |                                                           |
 
 ---
 

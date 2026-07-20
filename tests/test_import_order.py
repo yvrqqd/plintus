@@ -148,14 +148,86 @@ import app.pkg
     assert diags == []
 
 
-def test_i001_import_before_from_within_section():
+def test_i001_import_before_from_then_alpha():
     src = """\
-from os import path
-import sys
+from sys import path
+import os
+from pathlib import Path
+import abc
+from os import walk
 """
     expected = """\
-import sys
-from os import path
+import abc
+import os
+from os import walk
+from pathlib import Path
+from sys import path
+"""
+    diags, _ = _lint(src)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+
+
+def test_i001_sorts_imported_names():
+    src = """\
+from os import walk, path, Path as P
+import sys, os
+"""
+    expected = """\
+import os, sys
+from os import path, Path as P, walk
+"""
+    diags, _ = _lint(src)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+
+
+def test_i001_noqa_same_line_already_ordered():
+    src = "import os  # noqa: F401\n\ndef f():\n    pass\n"
+    diags, _ = _lint(src)
+    assert diags == []
+
+
+def test_i001_noqa_same_line_multi_import_already_ordered():
+    src = "import os  # noqa: F401\nimport sys\n"
+    diags, _ = _lint(src)
+    assert diags == []
+
+
+def test_i001_type_ignore_stays_on_same_line_when_sorting_names():
+    src = "import sys, os  # type: ignore\n"
+    expected = "import os, sys  # type: ignore\n"
+    diags, _ = _lint(src)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+
+
+def test_i001_trailing_comment_stays_on_same_logical_import_when_reordering():
+    src = "import requests\nimport sys, os  # type: ignore\n"
+    expected = "import os, sys  # type: ignore\n\nimport requests\n"
+    diags, _ = _lint(src)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+
+
+def test_i001_blank_line_after_trailing_comment_before_code():
+    src = "import os  # noqa: F401\ndef f():\n    pass\n"
+    expected = "import os  # noqa: F401\n\ndef f():\n    pass\n"
+    diags, _ = _lint(src)
+    assert diags
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+
+
+def test_i001_parenthesized_from_flattened_and_sorted():
+    src = """\
+from os import (
+    walk,
+    path,
+)
+"""
+    expected = """\
+from os import path, walk
 """
     diags, _ = _lint(src)
     new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
