@@ -46,3 +46,14 @@ def test_resolve_call_receiver_attribute():
     """
     assert _outer_call_name("(foo()).bar()") == "foo.bar"
     assert _outer_call_name('df.groupby("x").sum()') == "df.groupby.sum"
+
+
+def test_resolve_call_as_callee_is_none():
+    """Bare call-as-callee (factory()()) must not resolve to the inner name."""
+    doc, _ = parse_file("t.py", "factory()()\n")
+    try:
+        calls = doc.select(["call"])
+        outer = max(calls, key=lambda n: n.end - n.start)
+        assert resolve_call_name(doc, outer) is None
+    finally:
+        doc.close()

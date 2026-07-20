@@ -312,10 +312,9 @@ def _expr_name(document: "Document", node: "Node") -> str | None:
     if node.kind == "parenthesized_expression":
         inner = _paren_inner(document, node)
         return _expr_name(document, inner) if inner is not None else None
-    if node.kind == "call":
-        # Nested call receiver: resolve via the call's function child.
-        kids = document.children(node.id)
-        return _expr_name(document, kids[0]) if kids else None
+    # Do not unwrap bare call-as-callee (``factory()()``): that would attribute
+    # the outer call to ``factory`` and double-flag BAN001. Call nodes are only
+    # descended when walking an attribute receiver chain below.
     if node.kind == "attribute":
         parts: list[str] = []
         cur: "Node" | None = node

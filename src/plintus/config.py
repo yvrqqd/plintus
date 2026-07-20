@@ -485,7 +485,11 @@ def _set_both(
     elif as_int:
         setattr(cfg, snake, _as_int(val, snake))
     elif as_str:
-        setattr(cfg, snake, str(val))
+        if not isinstance(val, str):
+            raise ValueError(
+                f"{snake} must be a string, got {type(val).__name__}: {val!r}"
+            )
+        setattr(cfg, snake, val)
     elif as_str_list_dict:
         setattr(cfg, snake, _as_str_list_dict(val, snake))
     else:

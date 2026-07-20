@@ -271,6 +271,11 @@ def test_from_mapping_rejects_non_bool_cache():
         _from_mapping({"cache": "false"})
 
 
+def test_from_mapping_rejects_non_string_cache_dir():
+    with pytest.raises(ValueError, match="cache_dir"):
+        _from_mapping({"cache-dir": 123})
+
+
 def test_from_mapping_rejects_select_string():
     with pytest.raises(ValueError, match="select"):
         _from_mapping({"select": "Q001"})
@@ -572,6 +577,22 @@ def test_ban001_parenthesized_eval():
     assert any(d.rule_id == "BAN001" and "eval" in d.message for d in diags)
 
 
+def test_ban001_short_name_matches_chained_method():
+    """banned_calls short names must match the final segment of dotted names."""
+    src = 'df.groupby("x").sum()\n'
+    cfg = _cfg(select=["BAN001"], banned_calls=["sum"])
+    diags = lint_source("t.py", src, load_rules(cfg), cfg)
+    assert any(d.rule_id == "BAN001" for d in diags)
+
+
+def test_ban001_factory_call_as_callee_not_double_flagged():
+    """Outer call of factory()() must not resolve to factory (no double BAN001)."""
+    src = "factory()()\n"
+    cfg = _cfg(select=["BAN001"], banned_calls=["factory"])
+    diags = [d for d in lint_source("t.py", src, load_rules(cfg), cfg) if d.rule_id == "BAN001"]
+    assert len(diags) == 1
+
+
 def test_ord001_unconfigured_call_ignored():
     src = 'other.call(a=1, b=2)\n'
     cfg = _cfg(select=["ORD001"], call_arg_order={"client.request": ["a", "b"]})
@@ -845,22 +866,15 @@ def test_apply_diagnostics_fixes_returns_sorted():
 
 def test_document_del_logs_close_errors(capsys):
     """Item 17: unexpected errors in Document.__del__ are written to stderr."""
-    import gc
-
     from plintus.document import Document, parse_file
 
     doc, _ = parse_file("x.py", "x = 1\n")
-    original = Document.close
 
     def boom(self) -> None:
         raise RuntimeError("simulated close failure")
 
-    Document.close = boom  # type: ignore[method-assign]
-    try:
-        del doc
-        gc.collect()
-    finally:
-        Document.close = original  # type: ignore[method-assign]
+    doc.close = boom.__get__(doc, Document)  # type: ignore[method-assign]
+    Document.__del__(doc)
 
     err = capsys.readouterr().err
     assert "plintus.Document.__del__" in err
