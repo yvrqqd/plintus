@@ -10,7 +10,12 @@ if TYPE_CHECKING:
     from plintus.document import Node
 
 
-_LOG_METHODS = frozenset({"info", "warning", "error", "debug", "critical", "exception"})
+# CBP allows only these four levels (see L006).
+ALLOWED_LOG_METHODS = frozenset({"debug", "info", "warning", "error"})
+# Also recognize forbidden logger APIs so L001/L004/L006/Q002 can see them.
+_LOG_METHODS = frozenset(
+    {*ALLOWED_LOG_METHODS, "critical", "exception", "fatal", "warn", "log"}
+)
 # Receivers that look like logging loggers (not arbitrary `.info` / `.error` APIs).
 _KNOWN_LOGGER_NAMES = frozenset({"logging", "log", "logger", "LOG", "LOGGER"})
 
@@ -19,6 +24,11 @@ def final_segment(name: str | None) -> str | None:
     if not name:
         return None
     return name.rsplit(".", 1)[-1]
+
+
+def utf8_slice(source: str, start: int, end: int) -> str:
+    """Slice ``source`` by tree-sitter UTF-8 byte offsets."""
+    return source.encode("utf-8")[start:end].decode("utf-8")
 
 
 def imports_module(text: str, module: str) -> bool:
@@ -233,7 +243,9 @@ def _string_literal_content(node) -> str:
 def class_has_self_assignments(ctx: RuleContext, class_node) -> bool:
     """True if the class body assigns to ``self.*`` (including in methods)."""
     for assign in ctx.document.select(["assignment"]):
-        if not any(a.id == class_node.id for a in ctx.ancestors(assign)):
+        # Nearest enclosing class only — nested classes must not leak to outer.
+        enc = enclosing_class(ctx, assign)
+        if enc is None or enc.id != class_node.id:
             continue
         if _assignment_is_slots(ctx, assign):
             continue

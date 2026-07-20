@@ -8,9 +8,14 @@ select = ["ALL"]
 dict-quotes = "single"
 message-quotes = "double"
 banned-calls = ["eval", "exec"]
+known-first-party = ["app"]
+# cbp-import-prefix = "cbp_"
 
 # When Ruff T20 is on, drop the duplicate CBP print rule:
 # ignore = ["L002"]
+
+# When Ruff isort (I) is also on, ignore one side so autofixes do not fight:
+# (prefer plintus I001 for CBP four-section order)
 
 # Opt out of WPS (MVP + CBP only):
 # ignore = ["WPS"]

@@ -11,6 +11,7 @@ from plintus.rules.async_rules import (
 )
 from plintus.rules.banned_calls import BannedCalls
 from plintus.rules.call_order import CallArgOrder
+from plintus.rules.class_rules import ClassMethodBlankLines, ClassMethodOrder
 from plintus.rules.config_rules import (
     NoOsEnviron,
     OneSettingsPerFile,
@@ -21,6 +22,7 @@ from plintus.rules.error_rules import (
     CopyrightHeader,
     DaoNoConnectClose,
     NoBareException,
+    NoCatchBareException,
     NoSlottedDictAccess,
     RequireSlots,
 )
@@ -29,7 +31,9 @@ from plintus.rules.graphql_rules import (
     NoDaoInResolvers,
     ObserveLatencyOnResolvers,
 )
+from plintus.rules.import_order import ImportOrder
 from plintus.rules.logging_rules import (
+    AllowedLogLevels,
     GetLoggerDunderName,
     LogMsgKeyword,
     NoBasicConfig,
@@ -47,15 +51,19 @@ def register() -> list[Rule]:
     return [
         DictQuotes(),
         MessageQuotes(),
+        ImportOrder(),
         CallArgOrder(),
         BannedCalls(),
         RequireDecorator(),
+        ClassMethodOrder(),
+        ClassMethodBlankLines(),
         # CBP logging
         LogMsgKeyword(),
         NoPrint(),
         NoBasicConfig(),
         NoNestedTagsExtra(),
         GetLoggerDunderName(),
+        AllowedLogLevels(),
         # CBP async
         NoGetEventLoop(),
         NoToThread(),
@@ -68,6 +76,7 @@ def register() -> list[Rule]:
         OneSettingsPerFile(),
         # CBP errors / structure
         NoBareException(),
+        NoCatchBareException(),
         DaoNoConnectClose(),
         RequireSlots(),
         CopyrightHeader(),

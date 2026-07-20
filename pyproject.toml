@@ -75,6 +75,6 @@ ignore = ["WPS", "L002", "E004"]
 exclude = ["tests/fixtures"]
 workers = 0
 cache = true
-message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "logging.critical", "json_response", "web.json_response"]
+message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "json_response", "web.json_response"]
 dict-quotes = "single"
 message-quotes = "double"

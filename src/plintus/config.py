@@ -79,6 +79,8 @@ class RuleContextConfig:
     max_match_cases: int = 7
     max_lines_in_finally: int = 2
     max_conditions: int = 4
+    known_first_party: list[str] = field(default_factory=lambda: ["app"])
+    cbp_import_prefix: str = "cbp_"
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
@@ -111,7 +113,6 @@ class Config:
             "logging.warning",
             "logging.error",
             "logging.debug",
-            "logging.critical",
             # short names match via final segment (web.json_response → json_response)
             "json_response",
             "web.json_response",
@@ -171,6 +172,8 @@ class Config:
     max_match_cases: int = 7
     max_lines_in_finally: int = 2
     max_conditions: int = 4
+    known_first_party: list[str] = field(default_factory=lambda: ["app"])
+    cbp_import_prefix: str = "cbp_"
     # Directory used to resolve relative local_rules paths (set by load_config
     # to the pyproject parent). Not part of the fingerprint.
     _base_dir: Path | None = field(default=None, repr=False, compare=False)
@@ -245,6 +248,8 @@ class Config:
             max_match_cases=self.max_match_cases,
             max_lines_in_finally=self.max_lines_in_finally,
             max_conditions=self.max_conditions,
+            known_first_party=list(self.known_first_party),
+            cbp_import_prefix=self.cbp_import_prefix,
         )
 
     def __post_init__(self) -> None:
@@ -316,6 +321,7 @@ _STR_LIST_KEYS = (
     "forbidden_inline_ignore",
     "known_enum_bases",
     "nested_classes_whitelist",
+    "known_first_party",
 )
 
 _INT_KEYS = (
@@ -427,6 +433,7 @@ def _from_mapping(m: dict[str, Any]) -> Config:
         _set_both(cfg, m, key, as_list=True)
     for key in _INT_KEYS:
         _set_both(cfg, m, key, as_int=True)
+    _set_both(cfg, m, "cbp_import_prefix")
     return cfg
 
 

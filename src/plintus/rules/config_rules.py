@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from plintus.api import Rule, RuleContext, Severity, resolve_call_name
+from plintus.api import Fix, Rule, RuleContext, Severity, resolve_call_name
 from plintus.rules.cbp_helpers import (
     call_name_matches,
     class_base_names,
@@ -159,7 +159,16 @@ class SecretStrForSecrets(Rule):
                 if type_text is None:
                     continue
                 if "SecretStr" not in type_text:
-                    ctx.report(assign, f"Field '{field_name}' must be annotated SecretStr")
+                    type_node = _annotated_type_node(ctx, assign)
+                    fix = None
+                    if type_node is not None:
+                        # May require adding a SecretStr import.
+                        fix = Fix.replace(type_node, "SecretStr", safety="unsafe")
+                    ctx.report(
+                        assign,
+                        f"Field '{field_name}' must be annotated SecretStr",
+                        fix=fix,
+                    )
 
 
 class OneSettingsPerFile(Rule):
@@ -218,8 +227,13 @@ def _annotated_field_name(ctx: RuleContext, assign) -> str | None:
     return None
 
 
-def _annotated_type_text(ctx: RuleContext, assign) -> str | None:
+def _annotated_type_node(ctx: RuleContext, assign):
     for child in ctx.children(assign):
         if child.kind == "type":
-            return child.text()
+            return child
     return None
+
+
+def _annotated_type_text(ctx: RuleContext, assign) -> str | None:
+    node = _annotated_type_node(ctx, assign)
+    return None if node is None else node.text()

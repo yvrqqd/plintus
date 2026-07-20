@@ -3,18 +3,21 @@
 Decisions locked in:
 
 - **Quotes:** contextual only — `Q001` / `Q002` (not global flake8-quotes / Ruff `Q000`).
-- **flake8/Ruff:** maximum code compatibility (`F`, `E`, `W`, `I`, … same IDs) — still run via **Ruff**, not plintus.
+- **Self-sufficiency:** plintus aims to own policy + standard families over time.
+  Same IDs as pep8/pycodestyle (`E`/`W`), pyflakes (`F`), and isort (`I`) where
+  practical. Unported families may still be run via Ruff until implemented;
+  see [Planned: pep8 / flake8 / isort](#planned-pep8--flake8--isort-compatibility).
 - **WPS:** clean-room port of wemake-python-styleguide **codes** (catalog lists all; only implemented/partial checkers are registered). Enabled by default with `select = ["ALL"]` / `ignore = []`; opt out with `ignore = ["WPS"]`, or select specific `WPS*` codes.
-- **Renames (no collisions):** `B001`→`BAN001`, `C001`→`ORD001`, `D001`→`DEC001`, SQL→`SQL001` (bandit keeps `S`; use `S3G` for S3G001 — prefix `S` alone does not match `S3G*`).
+- **Renames (no collisions):** `B001`→`BAN001`, `C001`→`ORD001`, `D001`→`DEC001`, SQL→`SQL001` (bandit keeps `S`; use `S3G` for S3G001 — prefix `S` alone does not match `S3G*`). CBP `E001`–`E006` occupy the `E` family prefix (not pycodestyle `E` codes).
 
 Status: **implemented** = dedicated checker runs; **partial** = heuristic / best-effort (may miss cases); **planned** = catalogued but not registered until implemented.
 
-> **What's shipped today:** MVP (`Q001`, `Q002`, `ORD001`, `BAN001`, `DEC001`),
-> full **CBP** pack (`L*`, `A*`, `CFG*`, `E*`, `G*`, `SQL001`, `S3G001`), and a **WPS**
+> **What's shipped today:** MVP (`Q001`, `Q002`, `I001`, `ORD001`, `BAN001`, `DEC001`),
+> full **CBP** pack (`L*`, `A*`, `CFG*`, `E*`, `G*`, `CLS*`, `SQL001`, `S3G001`), and a **WPS**
 > pack with implemented/partial checkers registered (planned codes stay in the catalog
 > only). Default `select` is `["ALL"]` with `ignore = []` — all registered rules
 > (including WPS) are on; set `ignore = ["WPS"]` to keep MVP+CBP only.
-> Use [Ruff](with-ruff.md) for standard F/E/W/… families.
+> Ruff remains optional for families not yet ported — see [with-ruff.md](with-ruff.md).
 
 ---
 
@@ -24,9 +27,15 @@ Status: **implemented** = dedicated checker runs; **partial** = heuristic / best
 | ------ | --------------------------------------------------------- |
 | Q001   | Dict / subscript strings (incl. `extra=` slots, `obj['k']`) → single quotes |
 | Q002   | Message / raise / logging(/print) strings → double quotes                   |
-| ORD001 | Configured call keyword-arg order                         |
+| I001   | Import sections: stdlib → third-party → `cbp_*` → first-party (safe `--fix`) |
+| ORD001 | Configured call keyword-arg order (safe `--fix`)      |
 | BAN001 | Configured banned calls (`eval`/`exec` by default)        |
 | DEC001 | Required decorators on named functions                    |
+
+**I001 notes:** classifies without import resolution (`sys.stdlib_module_names`,
+`known-first-party`, `cbp-import-prefix`). `__future__` / docstring / copyright
+stay in the preamble. Mid-block comments between imports are not preserved on
+`--fix`. Family prefix `"I"` selects/ignores `I001`.
 
 ---
 
@@ -50,7 +59,8 @@ Family prefixes: `"WPS"` (all registered), `"WPS1"` (naming), `"WPS2"` (complexi
 | complexity      | C901              | WPS2xx      |
 | mutable default | B006              | WPS404      |
 | eval/exec       | S102 / BAN001     | WPS421      |
-| bare Exception  | E001              | WPS454      |
+| bare Exception  | E001 / E006       | WPS454      |
+| method order    | CLS001            | WPS338      |
 | `__slots__`     | E003 / E005       | WPS607      |
 
 Recommended when running Ruff + plintus:
@@ -200,7 +210,7 @@ Coverage by family (approximate):
 | WPS335 | Forbid wrong for loop iter targets. | planned |
 | WPS336 | Forbid explicit string concatenation in favour of .format method. | implemented |
 | WPS337 | Forbid multiline conditions. | planned |
-| WPS338 | Forbid incorrect order of methods inside a class. | planned |
+| WPS338 | Forbid incorrect order of methods inside a class. | covered by CLS001 |
 | WPS339 | Forbid meaningless zeros. | planned |
 | WPS340 | Forbid extra + signs in the exponent. | planned |
 | WPS341 | Forbid letters as hex numbers. | planned |
@@ -386,61 +396,128 @@ Coverage by family (approximate):
 
 ## CBP / `.mdc` context rules (**implemented**)
 
-Family prefixes work in `select` / `ignore` (e.g. `"L"` enables `L001`…`L005`).
+Family prefixes work in `select` / `ignore` (e.g. `"L"` enables `L001`…`L006`).
 
 | Code   | Rule                                                  | Source                                                    |
 | ------ | ----------------------------------------------------- | --------------------------------------------------------- |
-| L001   | logger: message only via `msg=`                       | logging.mdc                                               |
+| L001   | with `extra=`: message only via `msg=` (safe `--fix`) | logging.mdc                                               |
 | L002   | no `print`                                            | alias of T20 — prefer T20, `ignore = ["L002"]` if both on |
 | L003   | no `basicConfig` / `dictConfig`                       | logging.mdc                                               |
 | L004   | no nested `extra={'tags':…}`                          | logging.mdc                                               |
-| L005   | `logging.getLogger(__name__)`                         | logging.mdc                                               |
+| L005   | `logging.getLogger(__name__)` (safe `--fix`)         | logging.mdc                                               |
+| L006   | only `debug` / `info` / `warning` / `error` (no `critical` / `exception` / `log` / …) | logging.mdc |
 | A001   | no `asyncio.get_event_loop()`                         | python.mdc                                                |
 | A002   | no `asyncio.to_thread`                                | python.mdc                                                |
 | A003   | no `requests` in async modules                        | graphql/python.mdc                                        |
-| A004   | `web.AppRunner` / `aiohttp.web.AppRunner` / imported `AppRunner` need `handle_signals=False` | python.mdc |
+| A004   | `web.AppRunner` / `aiohttp.web.AppRunner` / imported `AppRunner` need `handle_signals=False` (safe `--fix`) | python.mdc |
 | CFG001 | no `os.environ` / `from os import environ` outside `tests/` | project.mdc                                               |
 | CFG002 | settings fields need `Field(..., alias=…)`            | project.mdc                                               |
-| CFG003 | `*_PASSWORD`/`*_SECRET`/keys → `SecretStr`            | project.mdc                                               |
+| CFG003 | `*_PASSWORD`/`*_SECRET`/keys → `SecretStr` (unsafe `--fix`) | project.mdc                                        |
 | CFG004 | one `BaseSettings` + singleton per `app/config/` file | python.mdc                                                |
 | E001   | no `raise Exception` / bare `BaseException`           | db/s3.mdc                                                 |
 | E002   | under `app/dao/`: no client `connect`/`close`         | python.mdc                                                |
-| E003   | `__slots__` on `app/infra`/`app/dao` classes with `self.*` attrs | python.mdc |
+| E003   | `__slots__` on `app/infra`/`app/dao` classes with `self.*` attrs (unsafe `--fix`) | python.mdc |
 | E004   | module starts with 2–3 `#` copyright lines, then one blank line | — |
 | E005   | slotted classes: no `self.__dict__` / `vars(self)`    | python.mdc                                                |
+| E006   | no `except Exception` / `except BaseException` (incl. tuples) | — |
 | G001   | ban graphene/ariadne/tartiflette                      | graphql.mdc                                               |
 | G002   | resolvers need `@observe_latency`                     | graphql.mdc                                               |
 | G003   | no DAO/SQL inside resolvers                           | graphql.mdc                                               |
 | SQL001 | no f-string / `.format` SQL in execute                | db.mdc                                                    |
 | S3G001 | no `gc` / `gc.collect` in s3/dao paths                | s3.mdc                                                    |
-| ORD001 | call keyword order                                    |                                                           |
+| CLS001 | class method newspaper order (WPS338; safe `--fix`)  | —                                                         |
+| CLS002 | exactly one blank line between adjacent class methods (safe `--fix`) | —                                                |
+| ORD001 | call keyword order (safe `--fix`)                    |                                                           |
 | BAN001 | banned calls                                          |                                                           |
 | DEC001 | required decorators                                   |                                                           |
+| I001   | import section order (stdlib / third / cbp_* / app)   |                                                           |
+
+---
+
+## Planned: pep8 / flake8 / isort compatibility
+
+Goal: eventually cover the same rule surface as **pycodestyle (pep8)**, **pyflakes**,
+and **isort** inside plintus so consumers are not required to run Ruff for those
+families. Codes below are a **porting checklist** (status: **planned** unless noted).
+Canonical references:
+
+- [pycodestyle error codes](https://pycodestyle.pycqa.org/en/latest/intro.html#error-codes) (`E` / `W`)
+- [pyflakes](https://github.com/PyCQA/pyflakes) / flake8 `F` codes
+- [isort](https://pycqa.github.io/isort/) / Ruff `I` codes
+
+### pycodestyle / pep8 (`E` / `W`) — planned
+
+| Family | Examples | Notes |
+|--------|----------|-------|
+| `E1xx` | `E101`, `E111`, `E117` | Indentation |
+| `E2xx` | `E201`–`E275` | Whitespace |
+| `E3xx` | `E301`–`E306` | Blank lines |
+| `E4xx` | `E401`, `E402` | Import placement |
+| `E5xx` | `E501`, `E502` | Line length / backslash |
+| `E7xx` | `E701`–`E743` | Statements / naming |
+| `E9xx` | `E901`, `E902` | Parse / IO errors |
+| `W1xx`–`W6xx` | `W191`, `W291`–`W605` | Warnings |
+
+**Collision:** plintus CBP already uses `E001`–`E006`. Future pycodestyle ports
+must use distinct ids or a dedicated prefix (e.g. keep CBP `E*` and map pep8
+`E4xx`/`E5xx` under compatible codes that do not overlap, or a `PEP`/`PYC` family).
+
+### pyflakes (`F`) — planned
+
+| Code | Topic |
+|------|-------|
+| `F401` | unused import |
+| `F402` | import shadowed by loop var |
+| `F403` / `F405` | star import undefined names |
+| `F404` | late `__future__` import |
+| `F406` / `F407` | `__future__` / unknown `__future__` |
+| `F501`–`F508` | printf / `.format` / f-string placeholders |
+| `F541` | f-string without placeholders |
+| `F601` / `F602` | repeated dict keys |
+| `F621`–`F622` | starred expression unpacking |
+| `F631`–`F634` | assert / isinstance / if tumbleweed |
+| `F701`–`F722` | `break`/`continue`/`return`/`yield` misplaced; annotations |
+| `F811` | redefined while unused |
+| `F821`–`F823` | undefined / local before assignment |
+| `F841` | local assigned but never used |
+| `F901` | `raise NotImplemented` |
+
+### isort (`I`) — partial
+
+| Code | Status | Notes |
+|------|--------|-------|
+| `I001` | **implemented** | CBP 4-section order + safe `--fix` (not a 1:1 Ruff isort clone) |
+| `I002` | planned | Required imports / missing required import (isort) |
+
+Until other `F` / pycodestyle codes land, running Ruff alongside plintus is still
+useful — ignore overlapping ids on one side (e.g. Ruff `ignore = ["I"]` when
+using plintus `I001`).
 
 ---
 
 ## Suggested profiles
 
 ```toml
-# Complement Ruff:
-#   ruff check .
-#   plintus check .
-
 # Default (all registered rules, including WPS):
 [tool.plintus]
 select = ["ALL"]
 dict-quotes = "single"
 message-quotes = "double"
 banned-calls = ["eval", "exec"]
+known-first-party = ["app"]
+# cbp-import-prefix = "cbp_"
 
 # Opt out of WPS:
 # ignore = ["WPS"]
 
 # When Ruff T20 is enabled, drop the duplicate print rule:
 # ignore = ["L002"]
+# When Ruff isort (I) is also enabled, ignore one side:
+# ignore = ["I"]   # on Ruff, or on plintus
 ```
 
 ## Using with Ruff today
 
-See [with-ruff.md](with-ruff.md). Run **Ruff for standard families** and
-**plintus for Q/ORD/BAN/DEC + CBP + WPS** (drop WPS via `ignore` if needed).
+See [with-ruff.md](with-ruff.md). Run **plintus** for Q/I/ORD/BAN/DEC + CBP + WPS;
+optionally **Ruff** for families not yet ported (F/E/W/… except CBP `E*` and
+plintus `I001`).

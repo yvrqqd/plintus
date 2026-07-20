@@ -45,7 +45,7 @@ def test_matches_rule_id(rule_id: str, entry: str, want: bool):
 
 
 def test_prefix_select_and_ignore():
-    src = 'print(1)\nLOG.info("hi")\n'
+    src = 'print(1)\nLOG.info("hi", extra={})\n'
     cfg = _cfg(select=["L"], ignore=["L002"])
     rules = load_rules(cfg)
     assert any(r.id == "L001" for r in rules)
@@ -80,12 +80,27 @@ def test_wps_can_be_ignored():
 
 
 def test_l001_positional_vs_msg():
-    bad = 'LOG.info("hi")\n'
-    good = 'LOG.info(msg="hi")\n'
+    # Without extra=, positional message is fine
+    assert _ids('LOG.info("hi")\n', "t.py", ["L001"]) == []
+    # With extra=, positional message is forbidden
+    bad = 'LOG.info("hi", extra={"a": 1})\n'
+    good = 'LOG.info(msg="hi", extra={"a": 1})\n'
     assert _ids(bad, "t.py", ["L001"]) == ["L001"]
     assert _ids(good, "t.py", ["L001"]) == []
-    # Non-logger `.info` must not trigger L001
-    assert _ids('response.info("hi")\n', "t.py", ["L001"]) == []
+    # Non-logger `.info` must not trigger L001 even with extra=
+    assert _ids('response.info("hi", extra={})\n', "t.py", ["L001"]) == []
+
+
+def test_l001_autofix():
+    from plintus.engine import apply_diagnostics_fixes
+
+    src = 'LOG.info("hi", extra={"a": 1})\n'
+    cfg = _cfg(select=["L001"])
+    diags = lint_source("t.py", src, load_rules(cfg), cfg)
+    assert len(diags) == 1 and diags[0].fix is not None
+    new, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new == 'LOG.info(msg="hi", extra={"a": 1})\n'
+    assert _ids(new, "t.py", ["L001"]) == []
 
 
 def test_l002_print():
@@ -120,6 +135,33 @@ def test_l005_get_logger():
     assert _ids('log.getLogger("app")\n', "t.py", ["L005"]) == []
     # Bare getLogger still flagged
     assert _ids('getLogger("app")\n', "t.py", ["L005"]) == ["L005"]
+
+
+def test_l005_autofix():
+    from plintus.engine import apply_diagnostics_fixes
+
+    src = 'import logging\nlogging.getLogger("app")\n'
+    cfg = _cfg(select=["L005"])
+    diags = lint_source("t.py", src, load_rules(cfg), cfg)
+    new, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert "getLogger(__name__)" in new
+    assert _ids(new, "t.py", ["L005"]) == []
+    kw = 'import logging\nlogging.getLogger(name="app")\n'
+    diags_kw = lint_source("t.py", kw, load_rules(cfg), cfg)
+    new_kw, _ = apply_diagnostics_fixes(kw, diags_kw, unsafe=False)
+    assert "name=__name__" in new_kw
+
+
+def test_l006_allowed_log_levels():
+    for method in ("debug", "info", "warning", "error"):
+        assert _ids(f'LOG.{method}("x")\n', "t.py", ["L006"]) == []
+        assert _ids(f'logging.{method}("x")\n', "t.py", ["L006"]) == []
+    for method in ("critical", "exception", "fatal", "warn", "log"):
+        assert _ids(f'LOG.{method}("x")\n', "t.py", ["L006"]) == ["L006"]
+        assert _ids(f'logging.{method}("x")\n', "t.py", ["L006"]) == ["L006"]
+    # Non-logger receivers must not trigger
+    assert _ids('response.critical("x")\n', "t.py", ["L006"]) == []
+    assert _ids('client.log("x")\n', "t.py", ["L006"]) == []
 
 
 # --- A* ---
@@ -178,6 +220,22 @@ def test_a004_apprunner():
     assert _ids(aliased, "t.py", ["A004"]) == ["A004"]
 
 
+def test_a004_autofix():
+    from plintus.engine import apply_diagnostics_fixes
+
+    src = "from aiohttp import web\nweb.AppRunner(app)\n"
+    cfg = _cfg(select=["A004"])
+    diags = lint_source("t.py", src, load_rules(cfg), cfg)
+    new, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert "handle_signals=False" in new
+    assert _ids(new, "t.py", ["A004"]) == []
+    wrong = "from aiohttp import web\nweb.AppRunner(app, handle_signals=True)\n"
+    diags2 = lint_source("t.py", wrong, load_rules(cfg), cfg)
+    new2, _ = apply_diagnostics_fixes(wrong, diags2, unsafe=False)
+    assert "handle_signals=False" in new2
+    assert "True" not in new2.split("AppRunner", 1)[1]
+
+
 # --- CFG* ---
 
 
@@ -234,6 +292,24 @@ class S(BaseSettings):
     assert _ids(good, "app/config/db.py", ["CFG003"]) == []
 
 
+def test_cfg003_autofix():
+    from plintus.engine import apply_diagnostics_fixes
+
+    src = """
+from pydantic import Field
+from pydantic_settings import BaseSettings
+class S(BaseSettings):
+    db_password: str = Field(default='x', alias='DB_PASSWORD')
+"""
+    cfg = _cfg(select=["CFG003"])
+    diags = lint_source("app/config/db.py", src, load_rules(cfg), cfg)
+    assert diags and diags[0].fix is not None
+    assert diags[0].fix.safety == "unsafe"
+    new, _ = apply_diagnostics_fixes(src, diags, unsafe=True)
+    assert "db_password: SecretStr" in new
+    assert _ids(new, "app/config/db.py", ["CFG003"]) == []
+
+
 def test_cfg004_one_settings():
     two = """
 from pydantic_settings import BaseSettings
@@ -266,6 +342,28 @@ A_SETTINGS = A()
 def test_e001_bare_exception():
     assert _ids('raise Exception("x")\n', "t.py", ["E001"]) == ["E001"]
     assert _ids('raise ValueError("x")\n', "t.py", ["E001"]) == []
+
+
+def test_e006_catch_bare_exception():
+    assert _ids("try:\n    x = 1\nexcept Exception:\n    pass\n", "t.py", ["E006"]) == ["E006"]
+    assert _ids(
+        "try:\n    x = 1\nexcept Exception as e:\n    pass\n", "t.py", ["E006"]
+    ) == ["E006"]
+    assert _ids(
+        "try:\n    x = 1\nexcept BaseException:\n    pass\n", "t.py", ["E006"]
+    ) == ["E006"]
+    assert _ids(
+        "try:\n    x = 1\nexcept (ValueError, Exception):\n    pass\n",
+        "t.py",
+        ["E006"],
+    ) == ["E006"]
+    assert _ids(
+        "try:\n    x = 1\nexcept builtins.Exception:\n    pass\n",
+        "t.py",
+        ["E006"],
+    ) == ["E006"]
+    assert _ids("try:\n    x = 1\nexcept ValueError:\n    pass\n", "t.py", ["E006"]) == []
+    assert _ids("try:\n    x = 1\nexcept:\n    pass\n", "t.py", ["E006"]) == []
 
 
 def test_e002_dao_connect():
@@ -308,6 +406,94 @@ def test_e003_slots():
         "        self._x = 1\n"
     )
     assert _ids(base_model, "app/infra/x.py", ["E003"]) == []
+
+
+def test_e003_nested_class_no_leak():
+    """Outer must not pick up nested-class self.* attrs (false positive / bad fix)."""
+    only_inner = (
+        "class Outer:\n"
+        "    class Inner:\n"
+        "        def __init__(self):\n"
+        "            self.b = 2\n"
+    )
+    assert _ids(only_inner, "app/infra/x.py", ["E003"]) == ["E003"]
+    cfg = _cfg(select=["E003"])
+    diags = lint_source("app/infra/x.py", only_inner, load_rules(cfg), cfg)
+    assert len(diags) == 1
+    assert "Outer" not in diags[0].message
+    assert "Inner" in diags[0].message
+    assert diags[0].fix is not None
+    assert "'b'" in diags[0].fix.replacement
+    assert diags[0].fix.safety == "unsafe"
+
+    both = (
+        "class Outer:\n"
+        "    def __init__(self):\n"
+        "        self.a = 1\n"
+        "    class Inner:\n"
+        "        def __init__(self):\n"
+        "            self.b = 2\n"
+    )
+    diags = lint_source("app/infra/x.py", both, load_rules(cfg), cfg)
+    assert len(diags) == 2
+    outer = next(d for d in diags if "Outer" in d.message)
+    inner = next(d for d in diags if "Inner" in d.message)
+    assert outer.fix is not None and "'a'" in outer.fix.replacement
+    assert "'b'" not in outer.fix.replacement
+    assert inner.fix is not None and "'b'" in inner.fix.replacement
+
+
+def test_e003_fix_docstring_multi_annotated_tabs():
+    from plintus.engine import apply_diagnostics_fixes
+
+    cfg = _cfg(select=["E003"])
+    rules = load_rules(cfg)
+
+    with_doc = (
+        "class Client:\n"
+        '    """doc"""\n'
+        "    def __init__(self):\n"
+        "        self._x = 1\n"
+        "        self._y = 2\n"
+    )
+    diags = lint_source("app/infra/x.py", with_doc, rules, cfg)
+    assert len(diags) == 1 and diags[0].fix is not None
+    new, _ = apply_diagnostics_fixes(with_doc, diags, unsafe=True)
+    assert new == (
+        "class Client:\n"
+        '    """doc"""\n'
+        "    __slots__ = (\n"
+        "        '_x',\n"
+        "        '_y',\n"
+        "    )\n"
+        "\n"
+        "    def __init__(self):\n"
+        "        self._x = 1\n"
+        "        self._y = 2\n"
+    )
+
+    annotated = (
+        "class Client:\n"
+        "    def __init__(self):\n"
+        "        self._x: int = 1\n"
+    )
+    diags = lint_source("app/infra/x.py", annotated, rules, cfg)
+    assert diags and diags[0].fix is not None
+    assert "'_x'" in diags[0].fix.replacement
+
+    tabbed = (
+        "class Client:\n"
+        "\tdef __init__(self):\n"
+        "\t\tself._x = 1\n"
+    )
+    diags = lint_source("app/infra/x.py", tabbed, rules, cfg)
+    assert diags and diags[0].fix is not None
+    assert diags[0].fix.replacement == (
+        "\t__slots__ = (\n"
+        "\t\t'_x',\n"
+        "\t)\n"
+        "\n"
+    )
 
 
 def test_e005_no_slotted_dict_access():
@@ -450,3 +636,127 @@ def test_s3g001():
     assert _ids(fp, "app/dao/s3.py", ["S3G001"]) == []
     # Attribute chain ending in .gc.collect still flagged
     assert "S3G001" in _ids("mod.gc.collect()\n", "app/dao/s3.py", ["S3G001"])
+
+
+# --- CLS* / ORD001 autofix ---
+
+
+def test_ord001_autofix():
+    from plintus.engine import apply_diagnostics_fixes
+
+    src = "client.request(url='/', method='GET', timeout=1)\n"
+    cfg = _cfg(
+        select=["ORD001"],
+        call_arg_order={"client.request": ["method", "url", "timeout"]},
+    )
+    diags = lint_source("t.py", src, load_rules(cfg), cfg)
+    assert len(diags) == 1 and diags[0].fix is not None
+    new, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new == "client.request(method='GET', url='/', timeout=1)\n"
+    assert not any(d.rule_id == "ORD001" for d in lint_source("t.py", new, load_rules(cfg), cfg))
+
+
+def test_cls001_method_order():
+    from plintus.engine import apply_diagnostics_fixes
+
+    bad = """
+class C:
+    def _hidden(self):
+        pass
+
+    def __init__(self):
+        pass
+
+    def public(self):
+        pass
+"""
+    good = """
+class C:
+    def __init__(self):
+        pass
+
+    def public(self):
+        pass
+
+    def _hidden(self):
+        pass
+"""
+    assert _ids(bad, "t.py", ["CLS001"]) == ["CLS001"]
+    assert _ids(good, "t.py", ["CLS001"]) == []
+    cfg = _cfg(select=["CLS001"])
+    diags = lint_source("t.py", bad, load_rules(cfg), cfg)
+    assert diags[0].fix is not None
+    new, _ = apply_diagnostics_fixes(bad, diags, unsafe=False)
+    assert _ids(new, "t.py", ["CLS001"]) == []
+    assert new.index("def __init__") < new.index("def public")
+    assert new.index("def public") < new.index("def _hidden")
+
+
+def test_cls002_blank_lines():
+    from plintus.engine import apply_diagnostics_fixes
+
+    too_few = """
+class C:
+    def a(self):
+        pass
+    def b(self):
+        pass
+"""
+    too_many = """
+class C:
+    def a(self):
+        pass
+
+
+
+    def b(self):
+        pass
+"""
+    ok = """
+class C:
+    def a(self):
+        pass
+
+    def b(self):
+        pass
+"""
+    assert _ids(too_few, "t.py", ["CLS002"]) == ["CLS002"]
+    assert _ids(too_many, "t.py", ["CLS002"]) == ["CLS002"]
+    assert _ids(ok, "t.py", ["CLS002"]) == []
+    cfg = _cfg(select=["CLS002"])
+    for src in (too_few, too_many):
+        diags = lint_source("t.py", src, load_rules(cfg), cfg)
+        new, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+        assert _ids(new, "t.py", ["CLS002"]) == []
+
+
+def test_cls002_utf8_offsets_do_not_corrupt_indent():
+    """Byte offsets ≠ char indexes when non-ASCII appears earlier in the file."""
+    from plintus.engine import apply_diagnostics_fixes
+
+    src = '''
+# café — non-ASCII preamble
+class C:
+    def a(self):
+        return "→"
+
+    def b(self):
+        return 1
+'''
+    # Already correct spacing — must not false-positive or mangle indent
+    assert _ids(src, "t.py", ["CLS002"]) == []
+    bad = '''
+# café — non-ASCII preamble
+class C:
+    def a(self):
+        return "→"
+    def b(self):
+        return 1
+'''
+    cfg = _cfg(select=["CLS002"])
+    diags = lint_source("t.py", bad, load_rules(cfg), cfg)
+    assert len(diags) == 1
+    new, _ = apply_diagnostics_fixes(bad, diags, unsafe=False)
+    assert "    def b(self):" in new
+    assert _ids(new, "t.py", ["CLS002"]) == []
+    compile(new, "t.py", "exec")

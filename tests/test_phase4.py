@@ -134,17 +134,35 @@ def test_cli_fix_adds_slots_for_e003(tmp_path: Path):
         "        self._x = 1\n",
         encoding="utf-8",
     )
-    rc = _run_cli(["check", str(f), "--fix", "--no-cache", "--select", "E003", "--workers", "1"])
+    # E003 slots fix is unsafe (incomplete discovery can break runtime attrs).
+    rc = _run_cli([
+        "check", str(f), "--fix", "--unsafe", "--no-cache",
+        "--select", "E003", "--workers", "1",
+    ])
     assert rc == 0
     assert f.read_text(encoding="utf-8") == (
         "class AgentTrainingHistoryDAO:\n"
         "    __slots__ = (\n"
-        "        \'_x\',\n"
+        "        '_x',\n"
         "    )\n"
         "\n"
         "    def __init__(self):\n"
         "        self._x = 1\n"
     )
+
+
+def test_cli_fix_e003_requires_unsafe(tmp_path: Path):
+    f = tmp_path / "app" / "infra" / "client.py"
+    f.parent.mkdir(parents=True)
+    original = (
+        "class Client:\n"
+        "    def __init__(self):\n"
+        "        self._x = 1\n"
+    )
+    f.write_text(original, encoding="utf-8")
+    rc = _run_cli(["check", str(f), "--fix", "--no-cache", "--select", "E003", "--workers", "1"])
+    assert rc == 1
+    assert f.read_text(encoding="utf-8") == original
 
 
 def test_cli_diff_no_write(tmp_path: Path):

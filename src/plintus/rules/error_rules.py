@@ -1,4 +1,4 @@
-"""E001–E005 — errors, DAO lifecycle, slots, module copyright header."""
+"""E001–E006 — errors, DAO lifecycle, slots, module copyright header."""
 
 from __future__ import annotations
 
@@ -37,6 +37,9 @@ _SKIP_BASES = frozenset(
 _DATACLASS_DECOS = frozenset({"dataclass", "dataclasses.dataclass"})
 
 
+_BARE_EXCEPTIONS = frozenset({"Exception", "BaseException"})
+
+
 class NoBareException(Rule):
     """E001: no raise Exception / raise BaseException."""
 
@@ -50,10 +53,28 @@ class NoBareException(Rule):
             for child in ctx.children(node):
                 if child.kind == "call":
                     name = resolve_call_name(ctx.document, child)
-                    if name in ("Exception", "BaseException"):
+                    if name in _BARE_EXCEPTIONS:
                         ctx.report(child)
-                elif child.kind == "identifier" and child.text() in ("Exception", "BaseException"):
+                elif child.kind == "identifier" and child.text() in _BARE_EXCEPTIONS:
                     ctx.report(child)
+
+
+class NoCatchBareException(Rule):
+    """E006: no ``except Exception`` / ``except BaseException`` (incl. tuples)."""
+
+    id = "E006"
+    message = (
+        "Do not catch bare Exception/BaseException; "
+        "catch specific exception types instead"
+    )
+    severity = Severity.ERROR
+    targets = ("except_clause",)
+
+    def check(self, ctx: RuleContext) -> None:
+        for node in ctx.nodes:
+            for ident in _except_type_identifiers(ctx, node):
+                if ident.text() in _BARE_EXCEPTIONS:
+                    ctx.report(ident)
 
 
 class DaoNoConnectClose(Rule):
@@ -173,6 +194,39 @@ class NoSlottedDictAccess(Rule):
                 ctx.report(node)
 
 
+def _except_type_identifiers(ctx: RuleContext, except_clause) -> list:
+    """Yield type identifiers from ``except T`` / ``except T as e`` / tuples."""
+    out: list = []
+    for child in ctx.children(except_clause):
+        if child.kind in ("except", ":", "block"):
+            continue
+        _collect_except_type_idents(ctx, child, out)
+    return out
+
+
+def _collect_except_type_idents(ctx: RuleContext, node, out: list) -> None:
+    if node.kind == "identifier":
+        out.append(node)
+        return
+    if node.kind == "as_pattern":
+        for child in ctx.children(node):
+            if child.kind == "as":
+                break
+            _collect_except_type_idents(ctx, child, out)
+        return
+    if node.kind == "tuple":
+        for child in ctx.children(node):
+            if child.kind in ("(", ")", ","):
+                continue
+            _collect_except_type_idents(ctx, child, out)
+        return
+    if node.kind == "attribute":
+        idents = [c for c in ctx.children(node) if c.kind == "identifier"]
+        if idents:
+            out.append(idents[-1])
+        return
+
+
 def _is_self_dict_attr(ctx: RuleContext, node) -> bool:
     idents = [c for c in ctx.children(node) if c.kind == "identifier"]
     return (
@@ -213,12 +267,20 @@ def _slots_fix_for_class(ctx: RuleContext, class_node) -> Fix | None:
         insert_before = body_nodes[1]
     line_start = ctx.source.rfind("\n", 0, insert_before.start) + 1
     indent = ctx.source[line_start:insert_before.start]
-    slot_indent = indent + "    "
-    slot_lines = [f'{indent}__slots__ = (']
+    # Match body indent style (tabs vs spaces) for the nested tuple items.
+    unit = "\t" if indent and set(indent) <= {"\t"} else "    "
+    slot_indent = indent + unit
+    slot_lines = [f"{indent}__slots__ = ("]
     slot_lines.extend(f"{slot_indent}'{name}'," for name in names)
-    slot_lines.append(f'{indent})')
+    slot_lines.append(f"{indent})")
     replacement = "\n".join(slot_lines) + "\n\n"
-    return Fix(start=line_start, end=line_start, replacement=replacement)
+    # Incomplete discovery (setattr / dynamic attrs) can break at runtime.
+    return Fix(
+        start=line_start,
+        end=line_start,
+        replacement=replacement,
+        safety="unsafe",
+    )
 
 
 def _is_docstring_stmt(ctx: RuleContext, node) -> bool:
@@ -231,7 +293,8 @@ def _self_slot_names(ctx: RuleContext, class_node) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
     for assign in ctx.document.select(["assignment"]):
-        if not any(a.id == class_node.id for a in ctx.ancestors(assign)):
+        enc = enclosing_class(ctx, assign)
+        if enc is None or enc.id != class_node.id:
             continue
         if _assignment_is_slots(ctx, assign):
             continue

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 
-from plintus.api import Rule, RuleContext, Severity, resolve_call_name
+from plintus.api import Fix, Rule, RuleContext, Severity, resolve_call_name
 from plintus.rules.cbp_helpers import (
+    call_argument_list,
     imports_module,
     keyword_arg_names,
     keyword_args,
@@ -178,8 +179,34 @@ class AppRunnerHandleSignals(Rule):
                 continue
             kwargs = keyword_arg_names(ctx, node)
             if "handle_signals" not in kwargs:
-                ctx.report(node, "Pass handle_signals=False to AppRunner")
+                args = call_argument_list(ctx, node)
+                fix = None
+                if args is not None:
+                    fix = _insert_handle_signals_false(ctx, args)
+                ctx.report(node, "Pass handle_signals=False to AppRunner", fix=fix)
                 continue
             val = keyword_args(ctx, node).get("handle_signals")
             if val is not None and val.text() != "False":
-                ctx.report(node, "AppRunner handle_signals must be False")
+                ctx.report(
+                    node,
+                    "AppRunner handle_signals must be False",
+                    fix=Fix.replace(val, "False", safety="safe"),
+                )
+
+
+def _insert_handle_signals_false(ctx: RuleContext, args_node) -> Fix | None:
+    """Insert ``handle_signals=False`` before the closing ``)``."""
+    kids = list(ctx.children(args_node))
+    if not kids or kids[-1].kind != ")":
+        return None
+    close = kids[-1]
+    # Empty call: () → (handle_signals=False)
+    non_punct = [c for c in kids if c.kind not in ("(", ")")]
+    if not non_punct:
+        return Fix.replace(args_node, "(handle_signals=False)", safety="safe")
+    return Fix(
+        start=close.start,
+        end=close.start,
+        replacement=", handle_signals=False",
+        safety="safe",
+    )

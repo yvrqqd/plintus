@@ -61,10 +61,7 @@ class Document:
         self.close()
 
     def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
+        self.close()
 
     def select(self, kinds: Sequence[str] = ()) -> list[Node]:
         ids = self._py.select(list(kinds))

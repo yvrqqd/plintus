@@ -9,7 +9,7 @@ and `snake_case` forms.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `select` | `list[str]` | `["ALL"]` | Rule ids to enable. Exact ids, family prefixes (`"L"` → `L001`…`L005`, `"SQL"` → `SQL001`, `"S3G"` → `S3G001`; remainder after the prefix must be all digits so `"S"` does not match `S3G001`), or `"ALL"`. Empty `select` also enables all (subject to `ignore`). |
+| `select` | `list[str]` | `["ALL"]` | Rule ids to enable. Exact ids, family prefixes (`"L"` → `L001`…`L006`, `"SQL"` → `SQL001`, `"S3G"` → `S3G001`; remainder after the prefix must be all digits so `"S"` does not match `S3G001`), or `"ALL"`. Empty `select` also enables all (subject to `ignore`). |
 | `ignore` | `list[str]` | `[]` | Rule ids / family prefixes to skip (takes precedence over `select`). Empty by default — all registered rules (including WPS) are enabled. |
 | `exclude` | `list[str]` | `[]` | Path prefixes to skip after discovery (matched against the path relative to cwd, e.g. `"tests/fixtures"`). |
 | `workers` | `int` | `0` | `0` = auto (pool size = `min(32, cpu_count)` above the file-count threshold), `1` = disable multiprocessing, `N` = explicit pool size. Negative values are rejected. |
@@ -22,6 +22,8 @@ and `snake_case` forms.
 | `banned-calls` | `list[str]` | `["eval", "exec"]` | Call names forbidden by BAN001. |
 | `require-decorators` | `dict[str, list[str]]` | `{}` | Function name → list of required decorator names (DEC001). |
 | `call-arg-order` | `dict[str, list[str]]` | `{}` | Call name → required keyword argument order (ORD001). |
+| `known-first-party` | `list[str]` | `["app"]` | Top-level module names treated as first-party for I001 (plus relative imports). |
+| `cbp-import-prefix` | `str` | `"cbp_"` | Top-level names starting with this prefix form the CBP import section (I001). |
 | `local-rules` | `list[str]` | `[]` | Paths to Python files defining custom rules. Relative paths resolve against the pyproject directory. |
 
 ### WPS thresholds
@@ -90,7 +92,6 @@ message-calls = [
   "logging.warning",
   "logging.error",
   "logging.debug",
-  "logging.critical",
   "json_response",
   "web.json_response",
 ]
@@ -132,7 +133,7 @@ workers = 0
 cache = true
 dict-quotes = "single"
 message-quotes = "double"
-message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "logging.critical", "json_response", "web.json_response"]
+message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "json_response", "web.json_response"]
 banned-calls = ["eval", "exec"]
 require-decorators = { handle_event = ["login_required"] }
 call-arg-order = { "client.request" = ["method", "url", "timeout"] }

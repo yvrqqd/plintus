@@ -384,15 +384,18 @@ def _lint_with_workers(files: list[str], rule_ids: list[str], config: Config) ->
     args_list = [(f, rule_ids, config_dict) for f in files]
     out: list[Diagnostic] = []
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_worker_lint_file, a) for a in args_list]
-        for fut in as_completed(futures):
+        future_to_path = {
+            pool.submit(_worker_lint_file, a): a[0] for a in args_list
+        }
+        for fut in as_completed(future_to_path):
+            path = future_to_path[fut]
             try:
                 for d in fut.result():
                     out.append(_diagnostic_from_dict(d))
             except Exception as e:
                 # Attach file-path context so a worker crash doesn't surface as
                 # an opaque concurrent.futures exception.
-                raise RuntimeError(f"worker lint failed: {e}") from e
+                raise RuntimeError(f"worker lint failed for {path}: {e}") from e
     return out
 
 
