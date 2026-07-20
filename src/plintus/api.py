@@ -298,7 +298,11 @@ def resolve_call_name(document: "Document", call_node: "Node") -> str | None:
 
 def _paren_inner(document: "Document", node: "Node") -> "Node" | None:
     """Single meaningful child of a ``parenthesized_expression``."""
-    meaningful = [c for c in document.children(node.id) if c.kind not in ("(", ")")]
+    meaningful = [
+        c
+        for c in document.children(node.id)
+        if c.kind not in ("(", ")", "comment")
+    ]
     return meaningful[0] if len(meaningful) == 1 else None
 
 

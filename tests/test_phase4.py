@@ -262,6 +262,13 @@ def test_from_mapping_rejects_bad_dict_quotes():
 def test_from_mapping_rejects_non_int_workers():
     with pytest.raises(ValueError, match="workers"):
         _from_mapping({"workers": "auto"})
+    with pytest.raises(ValueError, match="workers"):
+        _from_mapping({"workers": 0.9})
+
+
+def test_from_mapping_rejects_non_bool_cache():
+    with pytest.raises(ValueError, match="cache"):
+        _from_mapping({"cache": "false"})
 
 
 def test_from_mapping_rejects_select_string():

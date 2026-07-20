@@ -423,15 +423,10 @@ def _as_str_list(value: Any, key: str) -> list[str]:
 
 
 def _as_int(value: Any, key: str) -> int:
-    """Coerce mapping value to ``int`` with a clear error (rejects ``\"auto\"``)."""
-    if isinstance(value, bool):
-        raise ValueError(f"{key} must be an integer, got bool: {value!r}")
-    if isinstance(value, int):
-        return value
-    try:
-        return int(value)
-    except (TypeError, ValueError) as e:
-        raise ValueError(f"{key} must be an integer, got {value!r}") from e
+    """Require a real ``int`` (rejects bool, float, and strings like ``\"auto\"``)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{key} must be an integer, got {type(value).__name__}: {value!r}")
+    return value
 
 
 def _as_str_list_dict(value: Any, key: str) -> dict[str, list[str]]:
@@ -505,7 +500,11 @@ def _from_mapping(m: dict[str, Any]) -> Config:
     _set_both(cfg, m, "workers", as_int=True)
     _set_both(cfg, m, "worker_threshold", as_int=True)
     if "cache" in m:
-        cfg.cache = bool(m["cache"])
+        if not isinstance(m["cache"], bool):
+            raise ValueError(
+                f"cache must be a bool, got {type(m['cache']).__name__}: {m['cache']!r}"
+            )
+        cfg.cache = m["cache"]
     _set_both(cfg, m, "cache_dir", as_str=True)
     _set_both(cfg, m, "message_calls", as_list=True)
     _set_both(cfg, m, "dict_quotes", as_str=True)

@@ -33,6 +33,11 @@ def test_resolve_parenthesized_callee():
     assert _outer_call_name('(eval)("x")') == "eval"
 
 
+def test_resolve_parenthesized_callee_with_comment():
+    """Trivia inside parens must not block unwrapping."""
+    assert _outer_call_name("(eval  # noqa\n)(\"x\")") == "eval"
+
+
 def test_resolve_call_receiver_attribute():
     """Call-as-receiver: descend into the call's function, keep the attr.
 
