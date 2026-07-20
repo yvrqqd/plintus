@@ -125,6 +125,28 @@ def test_cli_fix_writes(tmp_path: Path):
     assert f.read_text(encoding="utf-8") == "d = {'a': 'b'}\n"
 
 
+def test_cli_fix_adds_slots_for_e003(tmp_path: Path):
+    f = tmp_path / "app" / "dao" / "postgres" / "model" / "agent_training_history.py"
+    f.parent.mkdir(parents=True)
+    f.write_text(
+        "class AgentTrainingHistoryDAO:\n"
+        "    def __init__(self):\n"
+        "        self._x = 1\n",
+        encoding="utf-8",
+    )
+    rc = _run_cli(["check", str(f), "--fix", "--no-cache", "--select", "E003", "--workers", "1"])
+    assert rc == 0
+    assert f.read_text(encoding="utf-8") == (
+        "class AgentTrainingHistoryDAO:\n"
+        "    __slots__ = (\n"
+        "        \'_x\',\n"
+        "    )\n"
+        "\n"
+        "    def __init__(self):\n"
+        "        self._x = 1\n"
+    )
+
+
 def test_cli_diff_no_write(tmp_path: Path):
     f = tmp_path / "fix.py"
     original = 'd = {"a": "b"}\n'

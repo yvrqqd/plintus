@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from plintus.api import Rule, RuleContext, Severity, resolve_call_name
+from plintus.api import Fix, Rule, RuleContext, Severity, resolve_call_name
 from plintus.rules.cbp_helpers import (
+    _assignment_is_slots,
     call_name_matches,
     class_base_names,
     class_has_self_assignments,
@@ -102,7 +103,11 @@ class RequireSlots(Rule):
                 continue
             if class_has_slots(ctx, node):
                 continue
-            ctx.report(node, f"Class '{name}' must define __slots__")
+            ctx.report(
+                node,
+                f"Class '{name}' must define __slots__",
+                fix=_slots_fix_for_class(ctx, node),
+            )
 
 
 class CopyrightHeader(Rule):
@@ -187,3 +192,61 @@ def _is_vars_self(ctx: RuleContext, node) -> bool:
         args = [c for c in ctx.children(child) if c.kind not in ("(", ")", ",")]
         return len(args) == 1 and args[0].kind == "identifier" and args[0].text() == "self"
     return False
+
+
+def _slots_fix_for_class(ctx: RuleContext, class_node) -> Fix | None:
+    names = _self_slot_names(ctx, class_node)
+    if not names:
+        return None
+    block = None
+    for child in ctx.children(class_node):
+        if child.kind == "block":
+            block = child
+            break
+    if block is None:
+        return None
+    body_nodes = list(ctx.children(block))
+    if not body_nodes:
+        return None
+    insert_before = body_nodes[0]
+    if _is_docstring_stmt(ctx, insert_before) and len(body_nodes) > 1:
+        insert_before = body_nodes[1]
+    line_start = ctx.source.rfind("\n", 0, insert_before.start) + 1
+    indent = ctx.source[line_start:insert_before.start]
+    slot_indent = indent + "    "
+    slot_lines = [f'{indent}__slots__ = (']
+    slot_lines.extend(f"{slot_indent}'{name}'," for name in names)
+    slot_lines.append(f'{indent})')
+    replacement = "\n".join(slot_lines) + "\n\n"
+    return Fix(start=line_start, end=line_start, replacement=replacement)
+
+
+def _is_docstring_stmt(ctx: RuleContext, node) -> bool:
+    if node.kind != "expression_statement":
+        return False
+    return any(child.kind == "string" for child in ctx.children(node))
+
+
+def _self_slot_names(ctx: RuleContext, class_node) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for assign in ctx.document.select(["assignment"]):
+        if not any(a.id == class_node.id for a in ctx.ancestors(assign)):
+            continue
+        if _assignment_is_slots(ctx, assign):
+            continue
+        kids = [c for c in ctx.children(assign) if c.kind not in ("=", ":")]
+        if not kids:
+            continue
+        left = kids[0]
+        if left.kind != "attribute":
+            continue
+        idents = [c for c in ctx.children(left) if c.kind == "identifier"]
+        if len(idents) < 2 or idents[0].text() != "self":
+            continue
+        name = idents[-1].text()
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return names
