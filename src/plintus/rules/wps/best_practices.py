@@ -507,6 +507,349 @@ def _check_wps476(ctx: RuleContext) -> None:
             ctx.report(node, MESSAGES['WPS476'])
 
 
+# --- WPS443–WPS481 (planned batch) ---
+
+_UNHASHABLE_KINDS = frozenset({"list", "dictionary", "set", "list_comprehension", "dictionary_comprehension", "set_comprehension"})
+
+# math.e / math.pi / math.tau string forms; match prefixes longer than 3 chars (wemake intent).
+_MATH_APPROX_STRINGS = (
+    "2.718281828459045",
+    "3.141592653589793",
+    "6.283185307179586",
+)
+
+_ALPHABET_STRINGS = frozenset(
+    {
+        "abcdefghijklmnopqrstuvwxyz",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+    }
+)
+
+
+def _pair_key(ctx: RuleContext, pair):
+    for child in ctx.children(pair):
+        if child.kind not in (":",):
+            return child
+    return None
+
+
+def _is_unhashable_expr(node) -> bool:
+    return node is not None and node.kind in _UNHASHABLE_KINDS
+
+
+def _check_wps443(ctx: RuleContext) -> None:
+    """Forbid explicit unhashable types as set items / dict keys."""
+    for node in ctx.document.select(("set",)):
+        for child in ctx.children(node):
+            if child.kind in ("{", "}", ","):
+                continue
+            if _is_unhashable_expr(child):
+                ctx.report(child, MESSAGES["WPS443"])
+    for node in ctx.document.select(("dictionary",)):
+        for child in ctx.children(node):
+            if child.kind != "pair":
+                continue
+            key = _pair_key(ctx, child)
+            if _is_unhashable_expr(key):
+                ctx.report(key, MESSAGES["WPS443"])
+
+
+def _is_valid_kwarg_name(name: str) -> bool:
+    return bool(name) and name.isidentifier()
+
+
+def _check_wps445(ctx: RuleContext) -> None:
+    """Forbid incorrectly named keywords in starred dicts."""
+    for splat in ctx.document.select(("dictionary_splat",)):
+        for child in ctx.children(splat):
+            if child.kind != "dictionary":
+                continue
+            for pair in ctx.children(child):
+                if pair.kind != "pair":
+                    continue
+                key = _pair_key(ctx, pair)
+                if key is None or key.kind != "string":
+                    continue
+                content = H.string_content(key)
+                if not _is_valid_kwarg_name(content):
+                    ctx.report(key, MESSAGES["WPS445"])
+
+
+def _check_wps446(ctx: RuleContext) -> None:
+    """Forbid approximate math constants (use math.pi / math.e / math.tau)."""
+    for node in ctx.document.select(("float",)):
+        text = node.text().replace("_", "").lower()
+        if "e" in text and not text.startswith(("0x",)):
+            # scientific notation — skip heuristic prefix match
+            continue
+        if len(text) <= 3:
+            continue
+        if any(approx.startswith(text) for approx in _MATH_APPROX_STRINGS):
+            ctx.report(node, MESSAGES["WPS446"])
+
+
+def _check_wps447(ctx: RuleContext) -> None:
+    """Forbid using the alphabet as a string (use string.ascii_*)."""
+    for node in ctx.document.select(("string",)):
+        if H.is_fstring(node):
+            continue
+        content = H.string_content(node)
+        if content in _ALPHABET_STRINGS:
+            ctx.report(node, MESSAGES["WPS447"])
+
+
+def _check_wps449(ctx: RuleContext) -> None:
+    """Forbid float keys in dicts (and float subscript indices)."""
+    for node in ctx.document.select(("dictionary",)):
+        for child in ctx.children(node):
+            if child.kind != "pair":
+                continue
+            key = _pair_key(ctx, child)
+            if key is not None and key.kind == "float":
+                ctx.report(key, MESSAGES["WPS449"])
+    for node in ctx.document.select(("subscript",)):
+        for child in ctx.children(node):
+            if child.kind == "float":
+                ctx.report(child, MESSAGES["WPS449"])
+
+
+def _except_type_nodes(ctx: RuleContext, except_clause) -> list:
+    """Return the exception-type expression node(s) for an except clause."""
+    for child in ctx.children(except_clause):
+        if child.kind in ("except", "block", ":", "comment"):
+            continue
+        if child.kind == "as_pattern":
+            for sub in ctx.children(child):
+                if sub.kind in ("as", "as_pattern_target"):
+                    break
+                if sub.kind == "tuple":
+                    return [c for c in ctx.children(sub) if c.kind not in ("(", ")", ",")]
+                return [sub]
+        if child.kind == "tuple":
+            return [c for c in ctx.children(child) if c.kind not in ("(", ")", ",")]
+        return [child]
+    return []
+
+
+def _is_trivial_except_type(node) -> bool:
+    return node.kind in ("identifier", "attribute")
+
+
+def _check_wps455(ctx: RuleContext) -> None:
+    """Forbid non-trivial expressions as except parameters (only Name / Attribute)."""
+    for node in ctx.document.select(("except_clause",)):
+        for typ in _except_type_nodes(ctx, node):
+            if not _is_trivial_except_type(typ):
+                ctx.report(typ, MESSAGES["WPS455"])
+
+
+def _pattern_elements(ctx: RuleContext, pattern) -> list:
+    return [c for c in ctx.children(pattern) if c.kind not in ("(", ")", ",")]
+
+
+def _check_wps460(ctx: RuleContext) -> None:
+    """Forbid single-element destructuring: ``a, = ...`` / ``(a,) = ...``."""
+    for node in ctx.document.select(("assignment", "augmented_assignment")):
+        for child in ctx.children(node):
+            if child.kind not in ("pattern_list", "tuple_pattern"):
+                continue
+            elems = _pattern_elements(ctx, child)
+            if len(elems) == 1:
+                ctx.report(child, MESSAGES["WPS460"])
+            break
+
+
+def _check_wps469(ctx: RuleContext) -> None:
+    """Forbid ``raise e from e``."""
+    for node in ctx.document.select(("raise_statement",)):
+        if " from " not in node.text():
+            continue
+        kids = [c for c in ctx.children(node) if c.kind not in ("raise", "from")]
+        if len(kids) >= 2 and kids[0].text() == kids[1].text() and kids[0].kind == kids[1].kind:
+            ctx.report(node, MESSAGES["WPS469"])
+
+
+def _check_wps470(ctx: RuleContext) -> None:
+    """Forbid kwarg unpacking in class definition: ``class A(**kwargs):``."""
+    for node in ctx.document.select(("class_definition",)):
+        args = H.first_child_kind(ctx, node, "argument_list")
+        if args is None:
+            continue
+        for child in ctx.children(args):
+            if child.kind == "dictionary_splat":
+                ctx.report(child, MESSAGES["WPS470"])
+
+
+def _subscript_has_slice(ctx: RuleContext, node) -> bool:
+    return any(c.kind == "slice" for c in ctx.children(node))
+
+
+def _check_wps471(ctx: RuleContext) -> None:
+    """Forbid consecutive slices: ``x[1:][:2]``."""
+    for node in ctx.document.select(("subscript",)):
+        if not _subscript_has_slice(ctx, node):
+            continue
+        # Outer subscript whose object is itself a sliced subscript.
+        for child in ctx.children(node):
+            if child.kind == "subscript" and _subscript_has_slice(ctx, child):
+                ctx.report(node, MESSAGES["WPS471"])
+                break
+
+
+def _is_starred_rest(ctx: RuleContext, node) -> bool:
+    if node.kind != "list_splat_pattern":
+        return False
+    # *_ or *_name
+    return True
+
+
+def _check_wps472(ctx: RuleContext) -> None:
+    """Forbid getting first element via unpacking: ``first, *_ = items``."""
+    for node in ctx.document.select(("assignment",)):
+        for child in ctx.children(node):
+            if child.kind not in ("pattern_list", "tuple_pattern"):
+                continue
+            elems = _pattern_elements(ctx, child)
+            if len(elems) == 2 and elems[0].kind == "identifier" and _is_starred_rest(ctx, elems[1]):
+                ctx.report(child, MESSAGES["WPS472"])
+            break
+
+
+def _check_wps481(ctx: RuleContext) -> None:
+    """Forbid for-loops directly under module or class body (leaking loop vars)."""
+    for node in ctx.document.select(("for_statement",)):
+        parent = ctx.parent(node)
+        if parent is None:
+            continue
+        if parent.kind == "module":
+            ctx.report(node, MESSAGES["WPS481"])
+            continue
+        if parent.kind == "block":
+            owner = ctx.parent(parent)
+            if owner is not None and owner.kind == "class_definition":
+                ctx.report(node, MESSAGES["WPS481"])
+
+
+def _bool_literal_kind(node) -> str | None:
+    if node is None:
+        return None
+    if node.kind in ("true", "True") or node.text() == "True":
+        return "True"
+    if node.kind in ("false", "False") or node.text() == "False":
+        return "False"
+    return None
+
+
+def _check_wps444(ctx: RuleContext) -> None:
+    """Forbid ``False and ...`` / ``True or ...`` short-circuit conditions."""
+    for node in ctx.document.select(("boolean_operator",)):
+        kids = [c for c in ctx.children(node) if c.kind not in ("and", "or")]
+        ops = [c for c in ctx.children(node) if c.kind in ("and", "or")]
+        if len(kids) < 2 or not ops:
+            continue
+        left = _bool_literal_kind(kids[0])
+        op = ops[0].kind
+        if left == "False" and op == "and":
+            ctx.report(node, MESSAGES["WPS444"])
+        elif left == "True" and op == "or":
+            ctx.report(node, MESSAGES["WPS444"])
+
+
+def _check_wps468(ctx: RuleContext) -> None:
+    """Forbid ``for _, item in enumerate(...)``."""
+    for node in ctx.document.select(("for_statement",)):
+        # iterable must be enumerate(...)
+        call = None
+        target = None
+        seen_in = False
+        for child in ctx.children(node):
+            if child.kind == "in":
+                seen_in = True
+                continue
+            if not seen_in and child.kind in ("pattern_list", "tuple_pattern", "identifier"):
+                target = child
+            if seen_in and child.kind == "call":
+                call = child
+                break
+            if seen_in and child.kind not in ("block", ":"):
+                # non-call iterable
+                break
+        if call is None or target is None:
+            continue
+        name = resolve_call_name(ctx.document, call)
+        if name != "enumerate":
+            continue
+        elems = (
+            _pattern_elements(ctx, target)
+            if target.kind in ("pattern_list", "tuple_pattern")
+            else [target]
+        )
+        if elems and elems[0].kind == "identifier" and elems[0].text() == "_":
+            ctx.report(node, MESSAGES["WPS468"])
+
+
+def _import_from_module(ctx: RuleContext, node) -> str | None:
+    for child in ctx.children(node):
+        if child.kind == "dotted_name":
+            return child.text()
+        if child.kind == "relative_import":
+            return child.text()
+    return None
+
+
+def _aliased_import_parts(ctx: RuleContext, node) -> tuple[str | None, str | None]:
+    """Return (original_name, alias) for an aliased_import node."""
+    original = None
+    alias = None
+    for child in ctx.children(node):
+        if child.kind in ("dotted_name", "identifier"):
+            if original is None:
+                original = child.text()
+            else:
+                alias = child.text()
+    return original, alias
+
+
+def _record_import_alias(
+    seen: dict[tuple[str, str], dict[str, object]],
+    mod: str,
+    original: str,
+    alias: str,
+    node,
+    ctx: RuleContext,
+) -> None:
+    key = (mod, original)
+    aliases = seen.setdefault(key, {})
+    if aliases and alias not in aliases:
+        ctx.report(node, MESSAGES["WPS474"])
+    aliases[alias] = node
+
+
+def _check_wps474(ctx: RuleContext) -> None:
+    """Forbid importing the same object under different aliases in one module."""
+    seen: dict[tuple[str, str], dict[str, object]] = {}
+    for node in ctx.document.select(("import_from_statement",)):
+        mod = _import_from_module(ctx, node)
+        if mod is None:
+            continue
+        after_import = False
+        for child in ctx.children(node):
+            if child.kind == "import":
+                after_import = True
+                continue
+            if not after_import:
+                continue
+            if child.kind == "dotted_name":
+                original = child.text()
+                _record_import_alias(seen, mod, original, original, child, ctx)
+            elif child.kind == "aliased_import":
+                original, alias = _aliased_import_parts(ctx, child)
+                if original and alias:
+                    _record_import_alias(seen, mod, original, alias, child, ctx)
+
+
 # Explicit map for codes with dedicated checkers
 _EXPLICIT = {
     'WPS400': (_check_wps400, ()),
@@ -549,16 +892,31 @@ _EXPLICIT = {
     'WPS437': (_check_wps437, ()),
     'WPS438': (_check_wps438, ()),
     'WPS439': (_check_wps439, ()),
+    'WPS443': (_check_wps443, ()),
+    'WPS444': (_check_wps444, ()),
+    'WPS445': (_check_wps445, ()),
+    'WPS446': (_check_wps446, ()),
+    'WPS447': (_check_wps447, ()),
+    'WPS449': (_check_wps449, ()),
     'WPS451': (_check_wps451, ()),
     'WPS452': (_check_wps452, ()),
     'WPS453': (_check_wps453, ()),
     'WPS454': (_check_wps454, ()),
+    'WPS455': (_check_wps455, ()),
     'WPS456': (_check_wps456, ()),
     'WPS457': (_check_wps457, ()),
+    'WPS460': (_check_wps460, ()),
     'WPS461': (_check_wps461, ()),
     'WPS464': (_check_wps464, ()),
     'WPS467': (_check_wps467, ()),
+    'WPS468': (_check_wps468, ()),
+    'WPS469': (_check_wps469, ()),
+    'WPS470': (_check_wps470, ()),
+    'WPS471': (_check_wps471, ()),
+    'WPS472': (_check_wps472, ()),
+    'WPS474': (_check_wps474, ()),
     'WPS476': (_check_wps476, ()),
+    'WPS481': (_check_wps481, ()),
 }
 
 

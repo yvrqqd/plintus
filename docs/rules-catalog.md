@@ -92,9 +92,9 @@ Coverage by family (approximate):
 | Naming (WPS1xx) | 19 | — | — |
 | Complexity (WPS2xx) | 39 | — | — |
 | OOP (WPS6xx) | 18 | — | — |
-| Consistency (WPS3xx) | 23 | — | 44 |
-| Best practices (WPS4xx) | 43 | 7 | 32 |
-| Refactoring (WPS5xx) | 17 | 2 | 18 |
+| Consistency (WPS3xx) | 38 | — | 28 |
+| Best practices (WPS4xx) | 58 | 7 | 17 |
+| Refactoring (WPS5xx) | 33 | 3 | 1 |
 
 
 ### System (1 rules)
@@ -183,15 +183,15 @@ Coverage by family (approximate):
 | WPS305 | Forbid f strings. | implemented |
 | WPS306 | Forbid writing explicit object base class. | implemented |
 | WPS307 | Forbid multiple if statements inside list comprehensions. | implemented |
-| WPS308 | Forbid comparing between two literals. | planned |
-| WPS309 | Forbid comparisons where the argument doesn't come first. | planned |
-| WPS310 | Forbid uppercase X, O, B, and E in numbers. | planned |
-| WPS311 | Forbid comparisons with multiple in checks. | planned |
+| WPS308 | Forbid comparing between two literals. | implemented |
+| WPS309 | Forbid comparisons where the argument doesn't come first. | implemented |
+| WPS310 | Forbid uppercase X, O, B, and E in numbers. | implemented |
+| WPS311 | Forbid comparisons with multiple in checks. | implemented |
 | WPS312 | Forbid comparisons of a variable to itself. | implemented |
 | WPS313 | Enforce separation of parenthesis from keywords with spaces. | planned |
 | WPS314 | Forbid using if or match statements that use invalid conditionals. | planned |
-| WPS315 | Forbid extra object in parent classes list. | planned |
-| WPS316 | Forbid multiple assignment targets for context managers. | planned |
+| WPS315 | Forbid extra object in parent classes list. | implemented |
+| WPS316 | Forbid multiple assignment targets for context managers. | implemented |
 | WPS317 | Forbid incorrect indentation for parameters. | planned |
 | WPS318 | Forbid extra indentation. | planned |
 | WPS319 | Forbid brackets in the wrong position. | planned |
@@ -202,7 +202,7 @@ Coverage by family (approximate):
 | WPS324 | Enforce consistent return statements. | implemented |
 | WPS325 | Enforce consistent yield statements. | implemented |
 | WPS326 | Forbid implicit string concatenation. | implemented |
-| WPS327 | Forbid meaningless continue in loops. | planned |
+| WPS327 | Forbid meaningless continue in loops. | implemented |
 | WPS328 | Forbid meaningless nodes. | planned |
 | WPS329 | Forbid meaningless except cases. | planned |
 | WPS330 | Forbid unnecessary operators in your code. | planned |
@@ -214,19 +214,19 @@ Coverage by family (approximate):
 | WPS336 | Forbid explicit string concatenation in favour of .format method. | implemented |
 | WPS337 | Forbid multiline conditions. | planned |
 | WPS338 | Forbid incorrect order of methods inside a class. | covered by CLS001 |
-| WPS339 | Forbid meaningless zeros. | planned |
-| WPS340 | Forbid extra + signs in the exponent. | planned |
-| WPS341 | Forbid letters as hex numbers. | planned |
+| WPS339 | Forbid meaningless zeros. | implemented |
+| WPS340 | Forbid extra + signs in the exponent. | implemented |
+| WPS341 | Forbid letters as hex numbers. | implemented |
 | WPS342 | Forbid \\ escape sequences inside regular strings. | planned |
-| WPS343 | Forbid uppercase complex number suffix. | planned |
+| WPS343 | Forbid uppercase complex number suffix. | implemented |
 | WPS344 | Forbid explicit division (or modulo) by zero. | implemented |
-| WPS345 | Forbid meaningless math operations with 0 and 1. | planned |
-| WPS346 | Forbid double minus operations. | planned |
+| WPS345 | Forbid meaningless math operations with 0 and 1. | implemented |
+| WPS346 | Forbid double minus operations. | implemented |
 | WPS347 | Forbid imports that may cause confusion outside of the module. | implemented |
-| WPS348 | Forbid starting lines with a dot. | planned |
+| WPS348 | Forbid starting lines with a dot. | implemented |
 | WPS349 | Forbid redundant components in a subscript's slice. | planned |
 | WPS350 | Enforce using augmented assign pattern. | implemented |
-| WPS351 | Forbid unnecessary literals in your code. | planned |
+| WPS351 | Forbid unnecessary literals in your code. | implemented |
 | WPS352 | Forbid multiline loops. | planned |
 | WPS353 | Forbid yield from with several nodes. | planned |
 | WPS354 | Forbid consecutive yield expressions. | planned |
@@ -290,24 +290,24 @@ Coverage by family (approximate):
 | WPS440 | Forbid overlapping local and block variables. | planned |
 | WPS441 | Forbid control variables after the block body. | planned |
 | WPS442 | Forbid shadowing variables from outer scopes. | planned |
-| WPS443 | Forbid explicit unhashable types of asset items and dict keys. | planned |
-| WPS444 | Forbid explicit falsely-evaluated conditions with several keywords. | planned |
-| WPS445 | Forbid incorrectly named keywords in starred dicts. | planned |
-| WPS446 | Forbid approximate constants. | planned |
-| WPS447 | Forbid using the alphabet as a string. | planned |
+| WPS443 | Forbid explicit unhashable types of asset items and dict keys. | implemented |
+| WPS444 | Forbid explicit falsely-evaluated conditions with several keywords. | implemented |
+| WPS445 | Forbid incorrectly named keywords in starred dicts. | implemented |
+| WPS446 | Forbid approximate constants. | implemented |
+| WPS447 | Forbid using the alphabet as a string. | implemented |
 | WPS448 | Forbid incorrect order of except. | planned |
-| WPS449 | Forbid float keys. | planned |
+| WPS449 | Forbid float keys. | implemented |
 | WPS450 | Forbid importing protected objects from modules. | planned |
 | WPS451 | Forbid positional only or / arguments. | partial |
 | WPS452 | Forbid break and continue in a finally block. | partial |
 | WPS453 | Forbid executing a file with shebang incorrectly set. | partial |
 | WPS454 | Forbid raising Exception or BaseException. | implemented |
-| WPS455 | Forbids using non-trivial expressions as a parameter for except. | planned |
+| WPS455 | Forbids using non-trivial expressions as a parameter for except. | implemented |
 | WPS456 | Forbids using float("NaN") construct to generate NaN. | partial |
 | WPS457 | Forbids use of infinite while True: loops. | implemented |
 | WPS458 | Forbids to import from already imported modules. | planned |
 | WPS459 | Forbids comparisons with float and complex. | planned |
-| WPS460 | Forbids to have single element destructuring. | planned |
+| WPS460 | Forbids to have single element destructuring. | implemented |
 | WPS461 | Forbids to use specific inline ignore violations. | implemented |
 | WPS462 | Forbids direct usage of multiline strings. | planned |
 | WPS463 | Forbids to have functions starting with get_ without returning a va... | planned |
@@ -315,20 +315,20 @@ Coverage by family (approximate):
 | WPS465 | Forbid comparisons between bitwise and boolean expressions. | planned |
 | WPS466 | Forbid using complex grammar for using decorators. | planned |
 | WPS467 | Forbid using a bare raise keyword outside of except. | partial |
-| WPS468 | Forbid using a placeholder (_) with enumerate. | planned |
-| WPS469 | Forbid raising an exception from itself. | planned |
-| WPS470 | Forbid kwarg unpacking in class definition. | planned |
-| WPS471 | Forbid consecutive slices. | planned |
-| WPS472 | Forbid getting first element using unpacking. | planned |
+| WPS468 | Forbid using a placeholder (_) with enumerate. | implemented |
+| WPS469 | Forbid raising an exception from itself. | implemented |
+| WPS470 | Forbid kwarg unpacking in class definition. | implemented |
+| WPS471 | Forbid consecutive slices. | implemented |
+| WPS472 | Forbid getting first element using unpacking. | implemented |
 | WPS473 | Limit empty lines in functions or methods body. | planned |
-| WPS474 | Do not allow importing the same object under different aliases. | planned |
+| WPS474 | Do not allow importing the same object under different aliases. | implemented |
 | WPS475 | Do not use problematic function parameters. | planned |
 | WPS476 | Do not use await in for loop. | partial |
 | WPS477 | Forbid using TypeVarTuple after a TypeVar with default. | planned |
 | WPS478 | Forbid using non strict slice operations. | planned |
 | WPS479 | Forbid using multi-line formatted string with single and double quo... | planned |
 | WPS480 | Forbid using comments inside formatted strings. | planned |
-| WPS481 | Found a leaking for loop in a class or module body. | planned |
+| WPS481 | Found a leaking for loop in a class or module body. | implemented |
 
 ### Refactoring (37 rules)
 
@@ -345,32 +345,32 @@ Coverage by family (approximate):
 | WPS508 | Forbid`not` with compare expressions. | implemented |
 | WPS509 | Forbid nesting ternary expressions in certain places. | implemented |
 | WPS510 | Forbid`in` with static containers except`set` nodes. | implemented |
-| WPS511 | Forbid multiple`isinstance` calls on the same variable. | planned |
-| WPS512 | Forbid multiple`isinstance` calls with single-item tuples. | planned |
-| WPS513 | Forbid implicit`elif` conditions. | planned |
-| WPS514 | Forbid multiple equality comparisons with the same variable. | planned |
+| WPS511 | Forbid multiple`isinstance` calls on the same variable. | implemented |
+| WPS512 | Forbid multiple`isinstance` calls with single-item tuples. | implemented |
+| WPS513 | Forbid implicit`elif` conditions. | implemented |
+| WPS514 | Forbid multiple equality comparisons with the same variable. | implemented |
 | WPS515 | Forbid`open()` without a context manager. | implemented |
 | WPS516 | Forbid comparing types with`type()` function. | implemented |
-| WPS517 | Forbid useless starred expressions. | planned |
+| WPS517 | Forbid useless starred expressions. | implemented |
 | WPS518 | Forbid implicit`enumerate()` calls. | implemented |
-| WPS519 | Forbid implicit`sum()` calls. | planned |
+| WPS519 | Forbid implicit`sum()` calls. | implemented |
 | WPS520 | Forbid comparing with explicit falsy constants. | implemented |
 | WPS521 | Forbid comparing values with constants using`is` or`is not`. | implemented |
-| WPS522 | Forbid implicit primitives in the form of`lambda` functions. | planned |
+| WPS522 | Forbid implicit primitives in the form of`lambda` functions. | implemented |
 | WPS523 | Forbid unpythonic variable swaps. | partial |
-| WPS524 | Forbid misrefactored self assignment. | planned |
-| WPS525 | Forbid comparisons where`in` is compared with single item container. | planned |
-| WPS526 | Forbid`yield` inside`for` loop instead of`yield from`. | planned |
+| WPS524 | Forbid misrefactored self assignment. | implemented |
+| WPS525 | Forbid comparisons where`in` is compared with single item container. | implemented |
+| WPS526 | Forbid`yield` inside`for` loop instead of`yield from`. | implemented |
 | WPS527 | Require tuples as arguments for certain functions. | planned |
-| WPS528 | Forbid implicit`.items()` iterator. | planned |
-| WPS529 | Forbid implicit`.get()` dict method. | planned |
-| WPS530 | Forbid implicit negative indexes. | planned |
+| WPS528 | Forbid implicit`.items()` iterator. | implemented |
+| WPS529 | Forbid implicit`.get()` dict method. | implemented |
+| WPS530 | Forbid implicit negative indexes. | implemented |
 | WPS531 | Forbid if statements that simply return booleans in functions or me... | implemented |
-| WPS532 | Forbid ast.Is in ast.Compare.ops when it's size is not zero. | planned |
-| WPS533 | Forbid having duplicate conditions in several`if`//`elif` branches. | planned |
-| WPS534 | Forbid having useless ternary expressions. | planned |
+| WPS532 | Forbid ast.Is in ast.Compare.ops when it's size is not zero. | partial |
+| WPS533 | Forbid having duplicate conditions in several`if`//`elif` branches. | implemented |
+| WPS534 | Forbid having useless ternary expressions. | implemented |
 | WPS535 | Forbid having duplicate`case` patterns. | partial |
-| WPS536 | Forbid extra syntax around`match` like list, set, or dict. | planned |
+| WPS536 | Forbid extra syntax around`match` like list, set, or dict. | implemented |
 
 ### OOP (18 rules)
 
