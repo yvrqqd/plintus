@@ -3,7 +3,8 @@
 `plintus` reads configuration from the `[tool.plintus]` section of a
 `pyproject.toml` discovered by walking up from the current directory (or from
 the directory of an explicit `--config` file). Keys accept both `kebab-case`
-and `snake_case` forms.
+and `snake_case` forms — **not both at once** for the same setting (that raises
+`ValueError`).
 
 ## Keys
 
@@ -103,11 +104,19 @@ call to `json_response` regardless of the receiver (see
 
 ## Validation
 
-`Config.__post_init__` validates at construction:
+`Config.validate()` runs at construction (`__post_init__`) and again after
+TOML/`--config` loading and CLI overrides (those paths mutate fields without
+re-running dataclass init).
 
-- `dict-quotes` and `message-quotes` must be `"single"` or `"double"`.
-- `workers` must be `>= 0`.
-- `worker-threshold` must be `>= 1`.
+Checks include:
+
+- `dict-quotes` / `message-quotes` must be `"single"` or `"double"`.
+- `workers` must be an integer `>= 0` (strings like `"auto"` are rejected).
+- `worker-threshold` must be an integer `>= 1`.
+- List keys (`select`, `ignore`, `banned-calls`, …) must be lists/tuples of
+  strings — a bare string like `select = "Q001"` is rejected.
+- Providing both kebab-case and snake_case for the same key
+  (e.g. `dict-quotes` and `dict_quotes`) raises `ValueError`.
 
 Invalid values raise `ValueError` (so a bad `pyproject.toml` fails loudly
 rather than silently misbehaving).

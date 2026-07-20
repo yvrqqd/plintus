@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Sequence
 
@@ -61,7 +62,14 @@ class Document:
         self.close()
 
     def __del__(self) -> None:
-        self.close()
+        # __del__ must not raise; log unexpected errors for debugging.
+        try:
+            self.close()
+        except Exception as exc:  # noqa: BLE001 — intentional swallow
+            try:
+                sys.stderr.write(f"plintus.Document.__del__: {exc!r}\n")
+            except Exception:  # noqa: BLE001
+                pass
 
     def select(self, kinds: Sequence[str] = ()) -> list[Node]:
         ids = self._py.select(list(kinds))

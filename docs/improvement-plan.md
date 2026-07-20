@@ -9,155 +9,49 @@
 3.10–3.13 + `cargo test --no-default-features` + clippy, бенчмарк с baseline
 JSON. Ниже — только то, что **осталось** или **появилось** в процессе.
 
-Текущее состояние: 65/66 тестов проходят (1 failure —
-`test_lint_paths_parallel_matches_inline` — падает из-за sandbox-блока
-`os.sysconf("SC_SEM_NSEMS_MAX")` на macOS, не баг кода; вне sandbox проходит).
+**Статус (2026-07-20):** Фаза 1 (п.п. 1–9) и Фаза 2 (п.п. 11–17, кроме
+п.10) **выполнены**. Worker-тесты могут падать в macOS-sandbox
+(`SC_SEM_NSEMS_MAX` / process spawn) — ограничение окружения, не баг кода.
+П.10 (Rust `pair_role`) остаётся в Фазе 3 / perf backlog.
 
-**Вторая итерация (v2.1):** добавлены 5 багов, найденных субагентом-багхантером
-(п.п. 8, 9, 11, 12, 13). Из них 2 критических (P0/P1 — повреждают код
-пользователя через `--fix`): `requote` генерирует SyntaxError для triple-quoted
-strings (п.8) и `dict_pair_role` ошибочно флагает вложенные строки (п.9).
+## Фаза 1 — Реальные баги (P0/P1) — DONE
 
-## Фаза 1 — Реальные баги (P0/P1)
-
-1. **`apply_diagnostics_fixes` теряет fixed-диагностики молча**
-   - Файл: `src/plintus/engine.py:310-342`, `lint_paths:237-241`
-   - `lint_paths` вызывает `apply_diagnostics_fixes`, получает `remaining`, но
-     `remaining` нигде не используется и не возвращается. `--fix --output-format
-     json` печатает **все** диагностики, включая уже применённые — вводит в
-     заблуждение (CI думает, что фикс не сработал).
-   - Решение: возвращать `remaining` из `lint_paths` либо помечать применённые
-     диагностики флагом `applied: bool` в `Diagnostic`. CLI `--fix` должен
-     печатать только `remaining` (или помечать `applied`).
-
-2. **Несогласованная сортировка диагностики**
-   - `lint_source` (`engine.py:157`): сортирует по `(path, start, rule_id, message)`.
-   - `lint_paths` (`engine.py:243`): сортирует по `(path, start, rule_id)` — без `message`.
-   - При двух диагностиках одного правила на одном span'е с разными сообщениями
-     порядок между `lint_source` и `lint_paths` различается. Унифицировать ключ.
-
-3. **Cache hit на повреждённом файле роняет процесс**
-   - Файл: `engine.py:140-142`
-   - `json.loads(cached)` на повреждённом кэше бросает `json.JSONDecodeError`,
-     которое поднимается как opaque-исключение вместо cache-miss.
-   - Обернуть в `try/except (json.JSONDecodeError, ValueError)` → treat as miss +
-     удалить/перезаписать битый файл. Тест: записать мусор в cache-файл, проверить
-     что lint проходит мимо кэша.
-
-4. **`--unsafe` без `--fix` молча ничего не делает**
-   - Файл: `cli.py:26, 70`
-   - `--unsafe` влияет только на `apply_diagnostics_fixes`, но если `--fix`/`--diff`
-     не передан — `apply_fixes=False`, флаг проигнорирован.
-   - Либо `parser.error("--unsafe requires --fix or --diff")`, либо warn в stderr.
-
-5. **`require_decorator.py:67` — мёртвая проверка `endswith("_punctuation")`**
-   - `child.kind.endswith("_punctuation")` никогда не истинно для tree-sitter-python
-     (там kinds вроде `"@"`, `"("`, не `"at_punctuation"`). Реально работает только
-     `child.kind not in ("@",)`. Убрать мёртвую ветку, оставить явный фильтр по
-     `child.is_named` (доступно через `nodes_batch["named"]`).
-
-6. **`document.py:50-53` — `doc_id` property мёртвый**
-   - Возвращает `id(self._py)`, ничего в коде его не использует. Удалить.
-
-7. **`engine.py:240` — вводящий в заблуждение комментарий**
-   - `# re-lint after fix for remaining issues (idempotent second pass optional)`
-     — ре-линта нет. Удалить комментарий либо реализовать второй проход
-     (рекомендуется: второй проход только если `remaining` непуст после fix).
-
-8. **`requote` генерирует SyntaxError для triple-quoted strings (P0)**
-   - Файл: `src/plintus/rules/string_utils.py:33-42, 74-93`
-   - `can_safely_requote` для triple-кавычек проверяет только отсутствие `'''`/`"""`
-     в теле, но не проверяет, что тело **заканчивается** символом новой кавычки.
-     `requote('"""it\'"""', "single")` → `("'''it''''", True)`, что парсится как
-     `'''it'''` + unterminated `'` → SyntaxError. Фикс помечен `safe=True`, поэтому
-     `--fix` применит его автоматически и **сломает код пользователя**.
-   - Решение: в `can_safely_requote` для triple `new_quote` также отклонять тела,
-     заканчивающиеся символом новой кавычки (`body.endswith(new_quote[0])`), либо
-     проверять, что `body + new_quote` не содержит 4+ подряд одинаковых кавычек.
-   - Тест: `requote('"""it\'"""', "single") is None`; зеркальный случай для `"`;
-     table-driven в `test_string_utils.py` с телами, оканчивающимися на `'`/`"`.
-
-9. **`dict_pair_role` ошибочно классифицирует вложенные строки как "dict value" (P1)**
-   - Файл: `src/plintus/api.py:177-204`
-   - При walk'е к ближайшему `pair` правило возвращает `"value"` для **любой** строки
-     в поддереве значения, игнорируя промежуточный контейнер. Q001 флагает элементы
-     tuple/list, индексы subscript, аргументы call внутри dict value — и применяет
-     к ним safe-fix. `d = {"k": ("a", "b")}` даёт 3 диагностики вместо 1, `--fix`
-     переписывает tuple-элементы.
-   - Решение: в ancestor-walk branch возвращать `"value"` только если string (или
-     её непосредственный parent) **является** value-node пары. Останавливать walk на
-     первом не-pair контейнере (`list`/`tuple`/`subscript`/`call`/`argument_list`)
-     и возвращать `None`.
-   - Тест: `d = {"k": ("a", "b")}` → 1 Q001 (только key); `d = {"k": v["x"]}` → 1
-     (только key); `d = {"k": foo("x")}` → 1; `d = {"k": {"nested": "v"}}` → 3
-     (вложенный dict должен остаться флагаемым).
+1. **DONE** — `applied: bool` на `Diagnostic`; CLI text скрывает applied, JSON
+   помечает; `apply_diagnostics_fixes` проставляет флаг.
+2. **DONE** — общий `_diagnostic_sort_key` = `(path, start, rule_id, message)`.
+3. **DONE** — corrupt cache → miss + rewrite (`JSONDecodeError`/`ValueError`).
+4. **DONE** — `parser.error("--unsafe requires --fix or --diff")`.
+5. **DONE** — мёртвая `_punctuation`-ветка убрана; фильтр `kind != "@"`.
+6. **DONE** — `doc_id` удалён.
+7. **DONE** — вводящий в заблуждение re-lint комментарий удалён (второй проход
+   не реализован).
+8. **DONE** — `can_safely_requote` отклоняет body, оканчивающееся на символ
+   новой triple-кавычки; тесты в `test_string_utils.py`.
+9. **DONE** — `dict_pair_role` останавливается на non-pair контейнерах; тесты
+   nested в `test_phase4.py`.
 
 ## Фаза 2 — API / корректность (medium priority)
 
-10. **`dict_pair_role` квадратичен**
-   - Файл: `api.py:177-204`
-   - На каждый строковый node зовёт `ancestors` + `children(parent)`. Для файла с
-     N строками в dict'ах это O(N × depth). Кешировать pair-role на этапе parse
-     (Rust пробегает CST один раз — может разметить `string` как `key`/`value`
-     сразу и класть в `NodeData` поле `pair_role: Option<u8>`).
+10. **OPEN** — `dict_pair_role` квадратичен (Rust `pair_role` на parse) — см. Фазу 3.
 
-11. **`_expr_name` для attribute и parenthesized receivers**
-   - Файл: `api.py:244-266`
-   - Для `(foo()).bar` — `objs[0]` это `call`, не `identifier`/`attribute`, цикл
-     `break`-ает и теряет `bar`. Для `(eval)("x")` — `parenthesized_expression`
-     не обрабатывается, `resolve_call_name` возвращает `None`, BAN001 молча
-     пропускает забаненный вызов (false negative на реальном способе вызова).
-     Документировать либо обработать (вызовы-ресиверы встречаются в реальном коде:
-     `df.groupby('x').sum()`; `(eval)()` — обходная паттерн для обфускации).
-   - Решение: в `_expr_name` добавить case для `parenthesized_expression`
-     (рекурсивно в единственного child) и для `call`-receiver (взять function
-     call'а как receiver для attribute).
+11. **DONE** — `_expr_name` unwrap `parenthesized_expression` + descend через
+    `call`-receiver; `(eval)("x")` / `(foo()).bar()`; тесты в
+    `test_resolve_call_name.py` + BAN001.
 
-12. **`Config` не валидирует типы полей из TOML и CLI**
-   - Файл: `config.py:149-205`
-   - `Config.__post_init__` валидирует `dict_quotes`/`message_quotes`/`workers`/
-     `worker_threshold`, но `_from_mapping` и `_apply_overrides` мутируют поля
-     через `setattr` **без повторной валидации** — `__post_init__` не вызывается.
-     `dict-quotes = "weird"` в pyproject.toml принимается молча → Q001/Q002
-     флагают все строки, `desired_quote_char` падает в else-ветку и возвращает
-     `"""`. `--workers -1` из CLI тоже молча принимается.
-   - Дополнительно: `int(m["workers"])` падает с `TypeError` на `workers = "auto"`.
-     `select = "Q001"` (строка вместо списка) тихо станет итерируемой —
-     `enabled("Q")` вернёт True по in-проверке.
-   - Решение: вынести валидацию в `validate()` метод, звать из `__post_init__` и
-     из конца `_from_mapping`/`_apply_overrides`. Добавить `_typecheck` хелпер
-     с человекочитаемыми ошибками для всех ключей (включая `select`/`ignore`/
-     `banned_calls`/etc. как списки строк).
-   - Тест: `_from_mapping({"dict-quotes": "weird"})` → `ValueError`;
-     `_from_mapping({"workers": "auto"})` → `ValueError`; `_from_mapping({"select": "Q001"})`
-     (строка) → `ValueError`; `_apply_overrides(cfg, {"workers": -1})` → `ValueError`.
+12. **DONE** — `Config.validate()` после TOML/CLI; type helpers отклоняют bare
+    `str` списки и `"auto"` workers.
 
-13. **`_from_mapping` молча даёт snake_case перекрыть kebab-case**
-   - Файл: `config.py:149-196`
-   - Для всех ключей с обоими вариантами (`cache-dir`/`cache_dir`, `dict-quotes`/
-     `dict_quotes`, и т.д.) snake-branch обрабатывается **после** kebab-branch,
-     поэтому при случайном наличии обоих — snake выигрывает молча. Footgun:
-     `cache-dir = "a"` + `cache_dir = "b"` → `b` без предупреждения.
-   - Решение: для каждого ключа с обоими формами detect presence обоих и raise
-     (или warn); либо документировать явное правило precedence.
+13. **DONE** — kebab+snake collision → `ValueError` через `_pick`.
 
-14. **`cli.py:92` — строковое сравнение severity**
-   - `d.severity.value == "error"` → `d.severity == Severity.ERROR`. Чисто.
+14. **DONE** — `cli.py`: `d.severity == Severity.ERROR`.
 
-15. **`lint_paths` повторно читает файл для fix**
-   - `engine.py:234-236` — `lint_file` уже прочитал source, но `lint_paths`
-     открывает файл снова. `lint_file`/`lint_source` могут возвращать source
-     вместе с диагностиками (или `lint_paths` зовёт `lint_source` напрямую).
+15. **DONE** — `lint_file` → `(diags, source)`; `lint_paths` не читает файл
+    повторно для `--fix`.
 
-16. **`apply_diagnostics_fixes` возвращает `remaining` неотсортированным**
-   - Порядок зависит от того, какие fix'ы оказались overlapping. Сортировать
-     `remaining` по `(start, rule_id)` перед возвратом.
+16. **DONE** — `apply_diagnostics_fixes` сортирует диагностики через
+    `_diagnostic_sort_key` (вместо устаревшего «remaining»).
 
-17. **`Document.__del__` глотает все исключения**
-   - `document.py:69-73` — `except Exception: pass`. Хотя `close()` идемпотентен,
-     скрытые ошибки затрудняют отладку. Логировать в stderr через
-     `sys.stderr.write(...)` (не `print`, чтобы не ломать capture в тестах без
-     capsys).
+17. **DONE** — `Document.__del__` пишет ошибки `close()` в `sys.stderr`.
 
 ## Фаза 3 — Performance (Rust-ядро)
 

@@ -283,9 +283,11 @@ def _call_name(document: "Document", call_node: "Node") -> str | None:
 def resolve_call_name(document: "Document", call_node: "Node") -> str | None:
     """Public helper: best-effort dotted call name from a ``call`` node.
 
-    Handles ``identifier`` (``foo()``), ``attribute`` (``a.b.c()``), and calls
-    wrapped in parentheses/subscripts on the receiver best-effort. Returns
-    ``None`` if the call target is not a simple name expression.
+    Handles ``identifier`` (``foo()``), ``attribute`` (``a.b.c()``),
+    parenthesized callees (``(eval)("x")`` → ``eval``), and call receivers on
+    attributes (``(foo()).bar()`` → ``foo.bar``, ``df.groupby("x").sum()`` →
+    ``df.groupby.sum``). Returns ``None`` if the call target is not a simple
+    name expression.
     """
     kids = document.children(call_node.id)
     if not kids:
@@ -294,9 +296,22 @@ def resolve_call_name(document: "Document", call_node: "Node") -> str | None:
     return _expr_name(document, func)
 
 
+def _paren_inner(document: "Document", node: "Node") -> "Node" | None:
+    """Single meaningful child of a ``parenthesized_expression``."""
+    meaningful = [c for c in document.children(node.id) if c.kind not in ("(", ")")]
+    return meaningful[0] if len(meaningful) == 1 else None
+
+
 def _expr_name(document: "Document", node: "Node") -> str | None:
     if node.kind == "identifier":
         return node.text()
+    if node.kind == "parenthesized_expression":
+        inner = _paren_inner(document, node)
+        return _expr_name(document, inner) if inner is not None else None
+    if node.kind == "call":
+        # Nested call receiver: resolve via the call's function child.
+        kids = document.children(node.id)
+        return _expr_name(document, kids[0]) if kids else None
     if node.kind == "attribute":
         parts: list[str] = []
         cur: "Node" | None = node
@@ -304,14 +319,31 @@ def _expr_name(document: "Document", node: "Node") -> str | None:
             if cur.kind == "identifier":
                 parts.append(cur.text())
                 break
+            if cur.kind == "parenthesized_expression":
+                cur = _paren_inner(document, cur)
+                continue
+            if cur.kind == "call":
+                kids = document.children(cur.id)
+                cur = kids[0] if kids else None
+                continue
             if cur.kind == "attribute":
                 children = document.children(cur.id)
                 # attribute: object . identifier
                 idents = [c for c in children if c.kind == "identifier"]
                 if idents:
                     parts.append(idents[-1].text())
-                objs = [c for c in children if c.kind in ("identifier", "attribute")]
-                cur = objs[0] if objs and objs[0].id != idents[-1].id else None
+                # object may be identifier, attribute, call, or parentheses
+                objs = [
+                    c
+                    for c in children
+                    if c.kind
+                    in ("identifier", "attribute", "call", "parenthesized_expression")
+                ]
+                cur = (
+                    objs[0]
+                    if objs and idents and objs[0].id != idents[-1].id
+                    else None
+                )
                 continue
             break
         parts.reverse()

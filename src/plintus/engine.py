@@ -204,10 +204,14 @@ def lint_source(
     return diagnostics
 
 
-def lint_file(path: str, rules: Sequence[Rule], config: Config) -> list[Diagnostic]:
+def lint_file(
+    path: str, rules: Sequence[Rule], config: Config
+) -> tuple[list[Diagnostic], str]:
+    """Lint a file on disk. Returns ``(diagnostics, source)`` so callers that
+    need the source (e.g. ``--fix``) avoid a second read."""
     with open(path, encoding="utf-8") as f:
         source = f.read()
-    return lint_source(path, source, rules, config)
+    return lint_source(path, source, rules, config), source
 
 
 def _diagnostic_from_dict(d: dict[str, Any]) -> Diagnostic:
@@ -263,7 +267,7 @@ def _worker_lint_file(args: tuple[str, list[str], dict[str, Any]]) -> list[dict[
     all_rules = _worker_builtin_rules()
     # local rules not supported in workers for MVP unless already importable
     rules = [all_rules[i] for i in rule_ids if i in all_rules]
-    diags = lint_file(path, rules, config)
+    diags, _source = lint_file(path, rules, config)
     return [d.to_dict() for d in diags]
 
 
@@ -320,10 +324,8 @@ def lint_paths(
         diagnostics = _lint_with_workers(files, rule_ids, config)
     else:
         for path in files:
-            diags = lint_file(path, rules, config)
+            diags, source = lint_file(path, rules, config)
             if apply_fixes:
-                with open(path, encoding="utf-8") as f:
-                    source = f.read()
                 new_source, diags = apply_diagnostics_fixes(source, diags, unsafe=unsafe_fixes)
                 if new_source != source:
                     fixed_sources[path] = new_source
@@ -433,4 +435,4 @@ def apply_diagnostics_fixes(
         data[fix.start : fix.end] = replacement
         applied_ranges.append((fix.start, fix.end))
         d.applied = True
-    return data.decode("utf-8"), diagnostics
+    return data.decode("utf-8"), _sort_diagnostics(diagnostics)

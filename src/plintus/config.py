@@ -253,6 +253,28 @@ class Config:
         )
 
     def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        """Validate field types and semantic constraints.
+
+        Called from ``__post_init__`` and after TOML/CLI mutation paths
+        (``_from_mapping`` / ``_apply_overrides``), which bypass dataclass init.
+        """
+        for key in _STR_LIST_FIELD_NAMES:
+            _check_str_list(getattr(self, key), key)
+        for key in _INT_FIELD_NAMES:
+            _check_int(getattr(self, key), key)
+        _check_str_list_dict(self.require_decorators, "require_decorators")
+        _check_str_list_dict(self.call_arg_order, "call_arg_order")
+        if not isinstance(self.cache_dir, str):
+            raise ValueError(f"cache_dir must be a string, got {type(self.cache_dir).__name__}")
+        if not isinstance(self.cbp_import_prefix, str):
+            raise ValueError(
+                f"cbp_import_prefix must be a string, got {type(self.cbp_import_prefix).__name__}"
+            )
+        if not isinstance(self.cache, bool):
+            raise ValueError(f"cache must be a bool, got {type(self.cache).__name__}")
         if self.dict_quotes not in ("single", "double"):
             raise ValueError(f"dict_quotes must be 'single' or 'double', got {self.dict_quotes!r}")
         if self.message_quotes not in ("single", "double"):
@@ -364,76 +386,140 @@ _INT_KEYS = (
     "max_conditions",
 )
 
+# All list[str] / int fields checked by Config.validate()
+_STR_LIST_FIELD_NAMES = (
+    "select",
+    "ignore",
+    "exclude",
+    "message_calls",
+    "banned_calls",
+    "local_rules",
+    *_STR_LIST_KEYS,
+)
 
-def _set_both(cfg: Config, m: dict[str, Any], snake: str, *, as_list: bool = False, as_int: bool = False) -> None:
+_INT_FIELD_NAMES = (
+    "workers",
+    "worker_threshold",
+    *_INT_KEYS,
+)
+
+_MISSING = object()
+
+
+def _as_str_list(value: Any, key: str) -> list[str]:
+    """Coerce mapping value to ``list[str]``; reject bare strings."""
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+        raise ValueError(
+            f"{key} must be a list of strings, got {type(value).__name__}: {value!r}"
+        )
+    out: list[str] = []
+    for i, item in enumerate(value):
+        if not isinstance(item, str):
+            raise ValueError(
+                f"{key}[{i}] must be a string, got {type(item).__name__}: {item!r}"
+            )
+        out.append(item)
+    return out
+
+
+def _as_int(value: Any, key: str) -> int:
+    """Coerce mapping value to ``int`` with a clear error (rejects ``\"auto\"``)."""
+    if isinstance(value, bool):
+        raise ValueError(f"{key} must be an integer, got bool: {value!r}")
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"{key} must be an integer, got {value!r}") from e
+
+
+def _as_str_list_dict(value: Any, key: str) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"{key} must be a mapping of strings to lists of strings, "
+            f"got {type(value).__name__}"
+        )
+    return {str(k): _as_str_list(v, f"{key}[{k!r}]") for k, v in value.items()}
+
+
+def _check_str_list(value: Any, key: str) -> None:
+    _as_str_list(value, key)
+
+
+def _check_int(value: Any, key: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{key} must be an integer, got {type(value).__name__}: {value!r}")
+
+
+def _check_str_list_dict(value: Any, key: str) -> None:
+    _as_str_list_dict(value, key)
+
+
+def _pick(m: dict[str, Any], snake: str) -> Any:
+    """Return value for ``snake`` or kebab form; raise if both are present."""
     kebab = snake.replace("_", "-")
-    if kebab in m:
-        val = m[kebab]
-    elif snake in m:
-        val = m[snake]
-    else:
+    has_kebab = kebab in m
+    has_snake = snake in m
+    if has_kebab and has_snake and kebab != snake:
+        raise ValueError(
+            f"conflicting config keys {kebab!r} and {snake!r}; use only one form"
+        )
+    if has_kebab:
+        return m[kebab]
+    if has_snake:
+        return m[snake]
+    return _MISSING
+
+
+def _set_both(
+    cfg: Config,
+    m: dict[str, Any],
+    snake: str,
+    *,
+    as_list: bool = False,
+    as_int: bool = False,
+    as_str: bool = False,
+    as_str_list_dict: bool = False,
+) -> None:
+    val = _pick(m, snake)
+    if val is _MISSING:
         return
     if as_list:
-        setattr(cfg, snake, list(val))
+        setattr(cfg, snake, _as_str_list(val, snake))
     elif as_int:
-        setattr(cfg, snake, int(val))
+        setattr(cfg, snake, _as_int(val, snake))
+    elif as_str:
+        setattr(cfg, snake, str(val))
+    elif as_str_list_dict:
+        setattr(cfg, snake, _as_str_list_dict(val, snake))
     else:
         setattr(cfg, snake, val)
 
 
 def _from_mapping(m: dict[str, Any]) -> Config:
     cfg = Config()
-    if "select" in m:
-        cfg.select = list(m["select"])
-    if "ignore" in m:
-        cfg.ignore = list(m["ignore"])
-    if "exclude" in m:
-        cfg.exclude = list(m["exclude"])
-    if "workers" in m:
-        cfg.workers = int(m["workers"])
-    if "worker-threshold" in m:
-        cfg.worker_threshold = int(m["worker-threshold"])
-    if "worker_threshold" in m:
-        cfg.worker_threshold = int(m["worker_threshold"])
+    _set_both(cfg, m, "select", as_list=True)
+    _set_both(cfg, m, "ignore", as_list=True)
+    _set_both(cfg, m, "exclude", as_list=True)
+    _set_both(cfg, m, "workers", as_int=True)
+    _set_both(cfg, m, "worker_threshold", as_int=True)
     if "cache" in m:
         cfg.cache = bool(m["cache"])
-    if "cache-dir" in m:
-        cfg.cache_dir = str(m["cache-dir"])
-    if "cache_dir" in m:
-        cfg.cache_dir = str(m["cache_dir"])
-    if "message-calls" in m:
-        cfg.message_calls = list(m["message-calls"])
-    if "message_calls" in m:
-        cfg.message_calls = list(m["message_calls"])
-    if "dict-quotes" in m:
-        cfg.dict_quotes = str(m["dict-quotes"])
-    if "dict_quotes" in m:
-        cfg.dict_quotes = str(m["dict_quotes"])
-    if "message-quotes" in m:
-        cfg.message_quotes = str(m["message-quotes"])
-    if "message_quotes" in m:
-        cfg.message_quotes = str(m["message_quotes"])
-    if "banned-calls" in m:
-        cfg.banned_calls = list(m["banned-calls"])
-    if "banned_calls" in m:
-        cfg.banned_calls = list(m["banned_calls"])
-    if "require-decorators" in m:
-        cfg.require_decorators = {str(k): list(v) for k, v in dict(m["require-decorators"]).items()}
-    if "require_decorators" in m:
-        cfg.require_decorators = {str(k): list(v) for k, v in dict(m["require_decorators"]).items()}
-    if "call-arg-order" in m:
-        cfg.call_arg_order = {str(k): list(v) for k, v in dict(m["call-arg-order"]).items()}
-    if "call_arg_order" in m:
-        cfg.call_arg_order = {str(k): list(v) for k, v in dict(m["call_arg_order"]).items()}
-    if "local-rules" in m:
-        cfg.local_rules = list(m["local-rules"])
-    if "local_rules" in m:
-        cfg.local_rules = list(m["local_rules"])
+    _set_both(cfg, m, "cache_dir", as_str=True)
+    _set_both(cfg, m, "message_calls", as_list=True)
+    _set_both(cfg, m, "dict_quotes", as_str=True)
+    _set_both(cfg, m, "message_quotes", as_str=True)
+    _set_both(cfg, m, "banned_calls", as_list=True)
+    _set_both(cfg, m, "require_decorators", as_str_list_dict=True)
+    _set_both(cfg, m, "call_arg_order", as_str_list_dict=True)
+    _set_both(cfg, m, "local_rules", as_list=True)
     for key in _STR_LIST_KEYS:
         _set_both(cfg, m, key, as_list=True)
     for key in _INT_KEYS:
         _set_both(cfg, m, key, as_int=True)
-    _set_both(cfg, m, "cbp_import_prefix")
+    _set_both(cfg, m, "cbp_import_prefix", as_str=True)
+    cfg.validate()
     return cfg
 
 
@@ -443,4 +529,5 @@ def _apply_overrides(cfg: Config, overrides: dict[str, Any]) -> Config:
             continue
         if hasattr(cfg, key):
             setattr(cfg, key, value)
+    cfg.validate()
     return cfg

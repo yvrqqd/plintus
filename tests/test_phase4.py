@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from plintus.config import Config, load_config
+from plintus.config import Config, _apply_overrides, _from_mapping, load_config
 from plintus.engine import lint_paths, lint_source, load_rules
 from plintus.rules.string_utils import (
     can_safely_requote,
@@ -252,6 +252,36 @@ def test_config_validation_rejects_bad_quotes():
 def test_config_validation_rejects_negative_workers():
     with pytest.raises(ValueError):
         Config(workers=-1)
+
+
+def test_from_mapping_rejects_bad_dict_quotes():
+    with pytest.raises(ValueError, match="dict_quotes"):
+        _from_mapping({"dict-quotes": "weird"})
+
+
+def test_from_mapping_rejects_non_int_workers():
+    with pytest.raises(ValueError, match="workers"):
+        _from_mapping({"workers": "auto"})
+
+
+def test_from_mapping_rejects_select_string():
+    with pytest.raises(ValueError, match="select"):
+        _from_mapping({"select": "Q001"})
+
+
+def test_apply_overrides_rejects_negative_workers():
+    cfg = Config()
+    with pytest.raises(ValueError, match="workers"):
+        _apply_overrides(cfg, {"workers": -1})
+
+
+def test_from_mapping_rejects_kebab_snake_collision():
+    with pytest.raises(ValueError, match="conflicting config keys"):
+        _from_mapping({"dict-quotes": "single", "dict_quotes": "double"})
+    with pytest.raises(ValueError, match="conflicting config keys"):
+        _from_mapping({"cache-dir": "a", "cache_dir": "b"})
+    with pytest.raises(ValueError, match="conflicting config keys"):
+        _from_mapping({"worker-threshold": 10, "worker_threshold": 20})
 
 
 def test_config_fingerprint_stable_and_excludes_base_dir(tmp_path: Path):
@@ -527,6 +557,14 @@ def test_ban001_empty_list_no_diags():
     assert not any(d.rule_id == "BAN001" for d in diags)
 
 
+def test_ban001_parenthesized_eval():
+    """(eval)(\"x\") must still be flagged — parentheses must not hide the name."""
+    src = '(eval)("x")\n'
+    cfg = _cfg(select=["BAN001"])
+    diags = lint_source("e.py", src, load_rules(cfg), cfg)
+    assert any(d.rule_id == "BAN001" and "eval" in d.message for d in diags)
+
+
 def test_ord001_unconfigured_call_ignored():
     src = 'other.call(a=1, b=2)\n'
     cfg = _cfg(select=["ORD001"], call_arg_order={"client.request": ["a", "b"]})
@@ -729,3 +767,94 @@ def test_dict_pair_role_nested_dict_flagged():
 def test_dict_pair_role_tuple_of_dict_flagged():
     # Outer key "k" + nested pair key "inner" + nested value "v" = 3
     assert _q001_count('d = {"k": ({"inner": "v"},)}\n') == 3
+
+
+# --- Phase 2 items 15–17 -----------------------------------------------------
+
+
+def test_lint_file_returns_diags_and_source(tmp_path: Path):
+    """Item 15: lint_file returns (diagnostics, source) so fix path skips re-read."""
+    from plintus.engine import lint_file
+
+    f = tmp_path / "a.py"
+    src = 'd = {"a": "b"}\n'
+    f.write_text(src, encoding="utf-8")
+    cfg = _cfg(select=["Q001"])
+    diags, got_source = lint_file(str(f), load_rules(cfg), cfg)
+    assert got_source == src
+    assert any(d.rule_id == "Q001" for d in diags)
+
+
+def test_lint_paths_fix_uses_lint_file_source(tmp_path: Path, monkeypatch):
+    """Item 15: apply_fixes must not open the file a second time."""
+    f = tmp_path / "a.py"
+    f.write_text('d = {"a": "b"}\n', encoding="utf-8")
+    cfg = _cfg(select=["Q001"])
+
+    opens: list[str] = []
+    real_open = open
+
+    def tracking_open(path, *args, **kwargs):
+        opens.append(str(path))
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+    diags, fixed = lint_paths([str(f)], cfg, apply_fixes=True)
+    # Exactly one open for the source file (via lint_file); no second read for fix.
+    path_opens = [p for p in opens if p == str(f) or Path(p).name == "a.py"]
+    assert len(path_opens) == 1
+    assert str(f) in fixed
+    assert fixed[str(f)] == "d = {'a': 'b'}\n"
+    assert diags  # applied diagnostics still returned
+
+
+def test_apply_diagnostics_fixes_returns_sorted():
+    """Item 16: returned diagnostics are sorted by _diagnostic_sort_key."""
+    from plintus.api import Diagnostic, Fix, Severity
+    from plintus.engine import _diagnostic_sort_key, apply_diagnostics_fixes
+
+    # Unsorted input: later start first, then same start with different rule_id/message.
+    diags = [
+        Diagnostic(
+            rule_id="B", message="z", path="p.py", start=10, end=12, line=1, col=10,
+            severity=Severity.ERROR,
+            fix=Fix(10, 12, "yy"),
+        ),
+        Diagnostic(
+            rule_id="A", message="m", path="p.py", start=0, end=1, line=1, col=0,
+            severity=Severity.ERROR,
+        ),
+        Diagnostic(
+            rule_id="A", message="a", path="p.py", start=10, end=11, line=1, col=10,
+            severity=Severity.WARNING,
+        ),
+    ]
+    _src, out = apply_diagnostics_fixes("0123456789ab", diags, unsafe=False)
+    assert [(_diagnostic_sort_key(d)) for d in out] == sorted(
+        _diagnostic_sort_key(d) for d in out
+    )
+    assert [d.rule_id for d in out] == ["A", "A", "B"]
+
+
+def test_document_del_logs_close_errors(capsys):
+    """Item 17: unexpected errors in Document.__del__ are written to stderr."""
+    import gc
+
+    from plintus.document import Document, parse_file
+
+    doc, _ = parse_file("x.py", "x = 1\n")
+    original = Document.close
+
+    def boom(self) -> None:
+        raise RuntimeError("simulated close failure")
+
+    Document.close = boom  # type: ignore[method-assign]
+    try:
+        del doc
+        gc.collect()
+    finally:
+        Document.close = original  # type: ignore[method-assign]
+
+    err = capsys.readouterr().err
+    assert "plintus.Document.__del__" in err
+    assert "simulated close failure" in err
