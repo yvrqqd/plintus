@@ -35,10 +35,16 @@ Status: **implemented** = dedicated checker runs; **partial** = heuristic / best
 **I001 notes:** classifies without import resolution (`sys.stdlib_module_names`,
 `known-first-party`, `cbp-import-prefix`). Within each section: all `import`
 statements (alphabetical), then all `from` statements (alphabetical); names
-inside `from … import a, b` / `import a, b` are sorted too. `__future__` /
-docstring / copyright stay in the preamble. Same-line trailing comments travel
-with their import on `--fix`; mid-block full-line comments between imports are
-not preserved. Family prefix `"I"` selects/ignores `I001`.
+inside `from … import a, b` / `import a, b` are sorted too. Autofix flattens
+short imports to one line when that single-line candidate fits `line-length`
+(default 88); otherwise `from` imports stay/become parenthesized (one name per
+line) and plain `import a, b` is split into separate statements. Splitting can
+raise the import-statement count and trigger **WPS201**; individual split lines
+are not re-checked against `line-length` (only the single-line candidate is).
+`__future__` / docstring / copyright stay in the preamble. Same-line trailing
+comments travel with their import on `--fix` (including each line after a
+plain multi-import split); mid-block full-line comments between imports are not
+preserved. Family prefix `"I"` selects/ignores `I001`.
 
 ---
 
@@ -433,7 +439,7 @@ Family prefixes work in `select` / `ignore` (e.g. `"L"` enables `L001`…`L006`)
 | ORD001 | call keyword order (safe `--fix`)                    |                                                           |
 | BAN001 | banned calls                                          |                                                           |
 | DEC001 | required decorators                                   |                                                           |
-| I001   | import section order (stdlib / third / cbp_* / app); import-before-from + name sort |                                                           |
+| I001   | import section order (stdlib / third / cbp_* / app); import-before-from + name sort; `line-length` wrap/split |                                                           |
 
 ---
 
@@ -489,7 +495,7 @@ must use distinct ids or a dedicated prefix (e.g. keep CBP `E*` and map pep8
 
 | Code | Status | Notes |
 |------|--------|-------|
-| `I001` | **implemented** | CBP 4-section order + safe `--fix` (not a 1:1 Ruff isort clone) |
+| `I001` | **implemented** | CBP 4-section order + safe `--fix` (`line-length` wrap/split; not a 1:1 Ruff isort clone) |
 | `I002` | planned | Required imports / missing required import (isort) |
 
 Until other `F` / pycodestyle codes land, running Ruff alongside plintus is still
@@ -509,6 +515,7 @@ message-quotes = "double"
 banned-calls = ["eval", "exec"]
 known-first-party = ["app"]
 # cbp-import-prefix = "cbp_"
+# line-length = 88
 
 # Opt out of WPS:
 # ignore = ["WPS"]

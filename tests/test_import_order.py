@@ -234,6 +234,145 @@ from os import path, walk
     assert new_src == expected
 
 
+def test_i001_long_from_import_stays_parenthesized():
+    """Autofix must not flatten past line-length (default 88)."""
+    src = """\
+from app.api.http.graphql.schema.mutation import (
+    CreateCompany, UpdateCompany, ArchiveCompany,
+    CreateAgent, UpdateAgent, ArchiveAgent, AddAgentTag, RemoveAgentTag,
+    CreateTag, UpdateTag, RemoveTag
+)
+"""
+    expected = """\
+from app.api.http.graphql.schema.mutation import (
+    AddAgentTag,
+    ArchiveAgent,
+    ArchiveCompany,
+    CreateAgent,
+    CreateCompany,
+    CreateTag,
+    RemoveAgentTag,
+    RemoveTag,
+    UpdateAgent,
+    UpdateCompany,
+    UpdateTag,
+)
+"""
+    diags, _ = _lint(src)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+    assert all(len(line) <= 88 for line in new_src.splitlines())
+
+    diags2, _ = _lint(new_src)
+    assert diags2 == []
+
+
+def test_i001_long_from_import_respects_line_length_config():
+    src = "from pkg import zebra, alpha, beta\n"
+    # Fits on one line at default 88; force wrap with a tight limit.
+    expected = """\
+from pkg import (
+    alpha,
+    beta,
+    zebra,
+)
+"""
+    diags, _ = _lint(src, line_length=20)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+
+
+def test_i001_long_plain_import_splits_statements():
+    src = "import module_with_a_rather_long_name_alpha, module_with_a_rather_long_name_beta\n"
+    expected = (
+        "import module_with_a_rather_long_name_alpha\n"
+        "import module_with_a_rather_long_name_beta\n"
+    )
+    diags, _ = _lint(src, line_length=40)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+
+    diags2, _ = _lint(new_src, line_length=40)
+    assert diags2 == []
+
+
+def test_i001_long_plain_import_split_preserves_trailing_comments():
+    src = (
+        "import module_with_a_rather_long_name_alpha, "
+        "module_with_a_rather_long_name_beta  # noqa: F401\n"
+    )
+    expected = (
+        "import module_with_a_rather_long_name_alpha  # noqa: F401\n"
+        "import module_with_a_rather_long_name_beta  # noqa: F401\n"
+    )
+    diags, _ = _lint(src, line_length=40)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+    diags2, _ = _lint(new_src, line_length=40)
+    assert diags2 == []
+
+    src_ti = (
+        "import module_with_a_rather_long_name_alpha, "
+        "module_with_a_rather_long_name_beta  # type: ignore\n"
+    )
+    expected_ti = (
+        "import module_with_a_rather_long_name_alpha  # type: ignore\n"
+        "import module_with_a_rather_long_name_beta  # type: ignore\n"
+    )
+    diags_ti, _ = _lint(src_ti, line_length=40)
+    new_ti, _ = apply_diagnostics_fixes(src_ti, diags_ti, unsafe=False)
+    assert new_ti == expected_ti
+    diags_ti2, _ = _lint(new_ti, line_length=40)
+    assert diags_ti2 == []
+
+
+def test_i001_split_import_reinterleaves_sibling_one_fix():
+    """Long multi-import split must re-bucket so mid sorts between ends."""
+    # Joined "import alpha_…, zeta_…" exceeds 50; mid belongs alphabetically
+    # between the split names — one ``--fix`` must be final.
+    src = (
+        "import alpha_xxxx_long_name_here, zeta_xxxx_long_name_here\n"
+        "import mid_pkg\n"
+    )
+    expected = (
+        "import alpha_xxxx_long_name_here\n"
+        "import mid_pkg\n"
+        "import zeta_xxxx_long_name_here\n"
+    )
+    diags, _ = _lint(src, line_length=50)
+    assert diags
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+    diags2, _ = _lint(new_src, line_length=50)
+    assert diags2 == []
+
+
+def test_i001_unsorted_multi_import_join_key_one_fix():
+    """Name-sort alone must not leave a second-pass join-key reorder."""
+    src = "import zebra, alpha\nimport mid\n"
+    expected = "import alpha, zebra\nimport mid\n"
+    diags, _ = _lint(src)
+    assert diags
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+    diags2, _ = _lint(new_src)
+    assert diags2 == []
+
+
+def test_i001_trailing_comment_forces_wrap_when_over_limit():
+    src = "from pkg import alpha, beta  # noqa: F401\n"
+    expected = """\
+from pkg import (
+    alpha,
+    beta,
+)  # noqa: F401
+"""
+    # Single line without comment fits; with comment it does not.
+    diags, _ = _lint(src, line_length=len("from pkg import alpha, beta") + 1)
+    new_src, _ = apply_diagnostics_fixes(src, diags, unsafe=False)
+    assert new_src == expected
+
+
 def test_i001_known_first_party_config():
     # Without known_first_party, mylib/corp would sort as third-party (with
     # requests). With classification working they form the first-party section
@@ -307,12 +446,15 @@ def test_config_loads_i001_keys(tmp_path):
 [tool.plintus]
 known-first-party = ["app", "tests"]
 cbp-import-prefix = "cbp_"
+line-length = 100
 """,
         encoding="utf-8",
     )
     cfg = load_config(config_path=pyproject)
     assert cfg.known_first_party == ["app", "tests"]
     assert cfg.cbp_import_prefix == "cbp_"
+    assert cfg.line_length == 100
     ctx = cfg.to_rule_context()
     assert ctx.known_first_party == ["app", "tests"]
     assert ctx.cbp_import_prefix == "cbp_"
+    assert ctx.line_length == 100

@@ -81,6 +81,7 @@ class RuleContextConfig:
     max_conditions: int = 4
     known_first_party: list[str] = field(default_factory=lambda: ["app"])
     cbp_import_prefix: str = "cbp_"
+    line_length: int = 88
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
@@ -174,6 +175,7 @@ class Config:
     max_conditions: int = 4
     known_first_party: list[str] = field(default_factory=lambda: ["app"])
     cbp_import_prefix: str = "cbp_"
+    line_length: int = 88
     # Directory used to resolve relative local_rules paths (set by load_config
     # to the pyproject parent). Not part of the fingerprint.
     _base_dir: Path | None = field(default=None, repr=False, compare=False)
@@ -250,6 +252,7 @@ class Config:
             max_conditions=self.max_conditions,
             known_first_party=list(self.known_first_party),
             cbp_import_prefix=self.cbp_import_prefix,
+            line_length=self.line_length,
         )
 
     def __post_init__(self) -> None:
@@ -285,6 +288,8 @@ class Config:
             raise ValueError(f"workers must be >= 0 (0=auto, 1=disable, N=pool), got {self.workers}")
         if self.worker_threshold < 1:
             raise ValueError(f"worker_threshold must be >= 1, got {self.worker_threshold}")
+        if self.line_length < 1:
+            raise ValueError(f"line_length must be >= 1, got {self.line_length}")
 
 
 def _matches_any(rule_id: str, entries: list[str]) -> bool:
@@ -384,6 +389,7 @@ _INT_KEYS = (
     "max_match_cases",
     "max_lines_in_finally",
     "max_conditions",
+    "line_length",
 )
 
 # All list[str] / int fields checked by Config.validate()

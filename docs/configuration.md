@@ -25,6 +25,7 @@ and `snake_case` forms — **not both at once** for the same setting (that raise
 | `call-arg-order` | `dict[str, list[str]]` | `{}` | Call name → required keyword argument order (ORD001). |
 | `known-first-party` | `list[str]` | `["app"]` | Top-level module names treated as first-party for I001 (plus relative imports). |
 | `cbp-import-prefix` | `str` | `"cbp_"` | Top-level names starting with this prefix form the CBP import section (I001). |
+| `line-length` | `int` | `88` | Soft limit for I001 autofix: if the single-line candidate exceeds this, long `from` imports are parenthesized and long plain `import a, b` is split into separate statements (which can raise WPS201). Split/wrapped lines are not re-checked against this limit. Match `[tool.ruff] line-length` when both tools run. |
 | `local-rules` | `list[str]` | `[]` | Paths to Python files defining custom rules. Relative paths resolve against the pyproject directory. |
 
 ### WPS thresholds

@@ -42,6 +42,7 @@ dict-quotes = "single"
 message-quotes = "double"
 banned-calls = ["eval", "exec"]
 known-first-party = ["app"]
+line-length = 120  # keep in sync with [tool.ruff] line-length for I001 wrap
 # cbp-import-prefix = "cbp_"
 message-calls = ["print", "logging.info", "logging.warning", "logging.error", "logging.debug", "json_response", "web.json_response"]
 # Optional WPS thresholds (wemake defaults apply if omitted):

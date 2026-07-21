@@ -10,6 +10,7 @@ message-quotes = "double"
 banned-calls = ["eval", "exec"]
 known-first-party = ["app"]
 # cbp-import-prefix = "cbp_"
+# line-length = 88  # I001 wrap; match [tool.ruff] line-length when both run
 
 # When Ruff T20 is on, drop the duplicate CBP print rule:
 # ignore = ["L002"]

@@ -16,6 +16,10 @@ Within each section::
 not reordered. Same-line trailing comments (``# noqa``, ``# type: ignore``)
 travel with their import on ``--fix``. Mid-block full-line comments between
 imports are not preserved on ``--fix``.
+
+When a rewritten import would exceed ``line-length`` (default 88), ``from``
+imports are parenthesized (one name per line) and plain ``import a, b`` is
+split into separate ``import`` statements.
 """
 
 from __future__ import annotations
@@ -187,9 +191,31 @@ def _render_sorted(
     for section in buckets:
         if not section:
             continue
-        ordered = sorted(section, key=lambda e: _sort_key(ctx, e.node))
-        parts.append("\n".join(_format_import(ctx, e) for e in ordered))
+        # Format first, then expand plain imports that split into multiple
+        # statements so siblings can interleave. Re-sort once so one ``--fix``
+        # is final (sort-then-format alone keeps a multi-import as one key).
+        units: list[tuple[tuple[int, str, str], str]] = []
+        for entry in section:
+            formatted = _format_import(ctx, entry)
+            if entry.node.kind == "import_statement" and "\n" in formatted:
+                for line in formatted.split("\n"):
+                    units.append((_plain_import_line_sort_key(line), line))
+            else:
+                units.append((_sort_key(ctx, entry.node), formatted))
+        units.sort(key=lambda u: u[0])
+        parts.append("\n".join(text for _, text in units))
     return "\n\n".join(parts)
+
+
+def _plain_import_line_sort_key(line: str) -> tuple[int, str, str]:
+    """Sort key for one formatted ``import …`` line (after a multi-import split)."""
+    code = line
+    hash_at = line.find("#")
+    if hash_at != -1:
+        code = line[:hash_at].rstrip()
+    rest = code[len("import ") :] if code.startswith("import ") else code
+    name = rest.split(" as ", 1)[0].strip()
+    return (0, name.casefold(), line.casefold())
 
 
 def _classify(
@@ -221,17 +247,43 @@ def _sort_key(ctx: RuleContext, node: "Node") -> tuple[int, str, str]:
 
 def _format_import(ctx: RuleContext, entry: _ImportEntry) -> str:
     """Rewrite one import with member names sorted; keep same-line EOL comments."""
-    formatted = _format_import_statement(ctx, entry.node)
-    if entry.trailing_comment is None:
+    comment_suffix = ""
+    if entry.trailing_comment is not None:
+        gap = ctx.source[entry.node.end : entry.trailing_comment.start]
+        if not gap or "\n" in gap:
+            gap = "  "
+        comment_suffix = f"{gap}{entry.trailing_comment.text()}"
+
+    # Reserve same-line comment length when deciding whether to wrap.
+    reserve = len(comment_suffix)
+    formatted = _format_import_statement(ctx, entry.node, reserve=reserve)
+    if not comment_suffix:
         return formatted
-    gap = ctx.source[entry.node.end : entry.trailing_comment.start]
-    if not gap or "\n" in gap:
-        gap = "  "
-    return f"{formatted}{gap}{entry.trailing_comment.text()}"
+    # Plain multi-imports may split into several statements; keep the EOL
+    # comment on each line. Parenthesized ``from`` keeps the comment on ``)``.
+    if "\n" in formatted and entry.node.kind == "import_statement":
+        return "\n".join(f"{line}{comment_suffix}" for line in formatted.split("\n"))
+    return f"{formatted}{comment_suffix}"
 
 
-def _format_import_statement(ctx: RuleContext, node: "Node") -> str:
-    """Format an import / import-from node without trailing comments."""
+def _line_length(ctx: RuleContext) -> int:
+    raw = ctx.config.get("line_length", 88)
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 88
+
+
+def _format_import_statement(
+    ctx: RuleContext, node: "Node", *, reserve: int = 0
+) -> str:
+    """Format an import / import-from node without trailing comments.
+
+    ``reserve`` is extra characters (e.g. a same-line comment) that must fit
+    on the single-line form before we wrap or split.
+    """
+    limit = _line_length(ctx)
+
     if node.kind == "import_statement":
         import_names = [
             child.text()
@@ -241,7 +293,11 @@ def _format_import_statement(ctx: RuleContext, node: "Node") -> str:
         if not import_names:
             return node.text()
         ordered = sorted(import_names, key=str.casefold)
-        return "import " + ", ".join(ordered)
+        single = "import " + ", ".join(ordered)
+        if len(single) + reserve <= limit:
+            return single
+        # Parentheses are invalid for plain ``import``; split into statements.
+        return "\n".join(f"import {name}" for name in ordered)
 
     if node.kind == "import_from_statement":
         module: str | None = None
@@ -262,10 +318,13 @@ def _format_import_statement(ctx: RuleContext, node: "Node") -> str:
         if module is None or not from_names:
             return node.text()
         ordered = sorted(from_names, key=str.casefold)
-        return f"from {module} import " + ", ".join(ordered)
+        single = f"from {module} import " + ", ".join(ordered)
+        if len(single) + reserve <= limit:
+            return single
+        body = "\n".join(f"    {name}," for name in ordered)
+        return f"from {module} import (\n{body}\n)"
 
     return node.text()
-
 
 def _top_level_module(ctx: RuleContext, node: "Node") -> tuple[str | None, bool]:
     """Return ``(top_level_name, is_relative)`` for an import statement."""
@@ -294,7 +353,11 @@ def _module_path_for_sort(ctx: RuleContext, node: "Node") -> str:
             extracted = _name_from_import_child(ctx, child)
             if extracted is not None:
                 names.append(extracted)
-        return ",".join(names) if names else node.text()
+        if not names:
+            return node.text()
+        # Match formatted name order so name-sort alone cannot change the
+        # section key on a later ``--fix`` pass.
+        return ",".join(sorted(names, key=str.casefold))
 
     if node.kind == "import_from_statement":
         for child in ctx.children(node):
